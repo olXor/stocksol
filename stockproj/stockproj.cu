@@ -4,11 +4,11 @@
 #define nIter 5
 
 #define initialTrainSamples 2
-#define trainIncreaseThreshold 200.0f
+#define trainIncreaseThreshold 100.0f
 
-#define initialStepMult 40.0f
+#define initialStepMult 10.0f
 //float initialStepMult = 40.0f;
-#define minimumStepMult 2.0f
+#define minimumStepMult 1.0f
 //float minimumStepMult = 0.5f;
 #define stepMultDecFactor 0.707f
 //float stepMultDecFactor = 0.75f;

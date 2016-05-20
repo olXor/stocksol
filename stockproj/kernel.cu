@@ -18,9 +18,7 @@ __host__ __device__ float transferDerivative(float in) {
 }
 
 __device__ bool isNan(float num) {
-	if (!isfinite(num))
-		return false;
-	return true;
+	return !isfinite(num);
 }
 
 __device__ void sumVector(float* vec, size_t size, size_t threadNum, size_t numThreads) {
@@ -65,6 +63,8 @@ __global__ void convolve(ConvolutionMatrices* mat, ConvolutionParameters* pars) 
 			for (size_t k = 0; k < convSize; k++) {
 				nodeStrengths[i + j*numInputNeurons] += mat->weights[i + j*numInputNeurons + k*numInputNeurons*numOutputNeurons] * inputs[i + k*numInputNeurons];
 			}
+			if (isNan(nodeStrengths[i + j*numInputNeurons]))
+				isNan(nodeStrengths[i + j*numInputNeurons]);
 		}
 	}
 
@@ -84,6 +84,10 @@ __global__ void convolve(ConvolutionMatrices* mat, ConvolutionParameters* pars) 
 			mat->outlayer[j + outLoc*numOutputNeurons] = transferFunction(nodeStrengths[j*numInputNeurons]);
 		if (inNeuron == 1 % numInThreads)
 			mat->outTDs[j + outLoc*numOutputNeurons] = transferDerivative(nodeStrengths[j*numInputNeurons]);
+		if (isNan(mat->outlayer[j + outLoc*numOutputNeurons]))
+			isNan(mat->outlayer[j + outLoc*numOutputNeurons]);
+		if (isNan(mat->outTDs[j + outLoc*numOutputNeurons]))
+			isNan(mat->outTDs[j + outLoc*numOutputNeurons]);
 	}
 }
 
@@ -316,6 +320,9 @@ __global__ void bpFixedNet(FixedNetMatrices* mat, FixedNetParameters* pars) {
 	__syncthreads();
 
 	float inNeuronInput = mat->inlayer[inNeuron];
+
+	if (isNan(inNeuronInput))
+		isNan(inNeuronInput);
 
 	//SHARED
 	float* inerrors = &outErrorTDs[numOutputNeurons]; //numOutputNeurons
