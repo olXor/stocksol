@@ -6,14 +6,12 @@ std::string datastring;
 std::string savestring;
 
 //parameters
-/*
 size_t NUM_INPUTS = 64;
 float INITIAL_OUTPUT_THRESHOLD = 0.0f;
 float OUTPUT_DIVISOR = 1.0f;
 std::string savename = "weights";
 std::string trainstring = "trainset";
 std::string randtrainstring = "rantrainset";
-*/
 
 void setStrings(std::string data, std::string save) {
 	datastring = data;
@@ -892,7 +890,6 @@ size_t readExplicitTrainSet(std::string learnsetname, size_t begin, size_t numIO
 }
 
 void loadParameters() {
-	/*
 	std::ifstream infile("pars.cfg");
 	std::string line;
 	while (getline(infile, line)) {
@@ -912,5 +909,4 @@ void loadParameters() {
 		else if (var == "randtrainstring")
 			lss >> randtrainstring;
 	}
-	*/
 }

@@ -3,15 +3,20 @@
 
 #define nIter 5
 
-#define initialTrainSamples 2
-#define trainIncreaseThreshold 100.0f
+//#define initialTrainSamples 2
+size_t initialTrainSamples = 2;
+size_t trainSamplesIncreaseFactor = 2;
+//#define trainIncreaseThreshold 100.0f
+float trainIncreaseThreshold = 100.0f;
 
-#define initialStepMult 10.0f
-//float initialStepMult = 40.0f;
-#define minimumStepMult 1.0f
-//float minimumStepMult = 0.5f;
-#define stepMultDecFactor 0.707f
-//float stepMultDecFactor = 0.75f;
+//#define initialStepMult 10.0f
+float initialStepMult = 40.0f;
+//#define minimumStepMult 1.0f
+float minimumStepMult = 0.5f;
+//#define stepMultDecFactor 0.707f
+float stepMultDecFactor = 0.707f;
+
+size_t backupInterval = 0;
 
 #define datastring "rawdata/"
 #define savestring "saveweights/"
@@ -24,6 +29,7 @@ void loadLocalParameters();
 void loadSimVariables();
 void saveSimVariables();
 size_t readData(size_t begin, size_t numIOs);
+void backupFiles(std::string backname);
 
 size_t numRuns;
 size_t trainSamples;
@@ -76,10 +82,16 @@ int main() {
 		if (afterError < trainIncreaseThreshold && trainSamples < totalSamples) {
 			saveSetHistory(numSamples, numRuns - numRunSetStart, stepMult);
 			numRunSetStart = numRuns;
-			trainSamples = min(2 * trainSamples, totalSamples);
+			trainSamples = min(trainSamplesIncreaseFactor * trainSamples, totalSamples);
 			numSamples = readData(1, trainSamples);
 			if (stepMultDecFactor > 0)
 				stepMult = max(stepMultDecFactor*stepMult, minimumStepMult);
+		}
+
+		if (backupInterval > 0 && (numRuns - numRunSetStart) % backupInterval == 0) {
+			std::stringstream bss;
+			bss << savename << numSamples << "-" << numRuns - numRunSetStart;
+			backupFiles(bss.str().c_str());
 		}
 
 		saveResults(numRuns, afterError);
@@ -150,7 +162,6 @@ size_t readData(size_t begin, size_t numIOs) {
 }
 
 void loadLocalParameters() {
-	/*
 	std::ifstream infile("pars.cfg");
 	std::string line;
 	while (getline(infile, line)) {
@@ -164,6 +175,59 @@ void loadLocalParameters() {
 			lss >> minimumStepMult;
 		else if (var == "stepMultDecFactor")
 			lss >> stepMultDecFactor;
+		else if (var == "initialTrainSamples")
+			lss >> initialTrainSamples;
+		else if (var == "trainSamplesIncreaseFactor")
+			lss >> trainSamplesIncreaseFactor;
+		else if (var == "trainIncreaseThreshold")
+			lss >> trainIncreaseThreshold;
+		else if (var == "backupInterval")
+			lss >> backupInterval;
 	}
-	*/
+}
+
+void backupFiles(std::string backname) {
+	std::stringstream bss;
+	bss << savestring << "backup/" << backname;
+
+	std::stringstream oss;
+	oss << savestring << savename;
+
+	std::stringstream pss;
+	pss << oss.str();
+
+	std::stringstream nss;
+	nss << bss.str();
+
+	CopyFile(pss.str().c_str(), nss.str().c_str(), false);
+
+	pss.clear();
+	pss.str("");
+	nss.clear();
+	nss.str("");
+
+	pss << oss.str() << "result";
+	nss << bss.str() << "result";
+
+	CopyFile(pss.str().c_str(), nss.str().c_str(), false);
+
+	pss.clear();
+	pss.str("");
+	nss.clear();
+	nss.str("");
+
+	pss << oss.str() << "pars";
+	nss << bss.str() << "pars";
+
+	CopyFile(pss.str().c_str(), nss.str().c_str(), false);
+
+	pss.clear();
+	pss.str("");
+	nss.clear();
+	nss.str("");
+
+	pss << oss.str() << "history";
+	nss << bss.str() << "history";
+
+	CopyFile(pss.str().c_str(), nss.str().c_str(), false);
 }
