@@ -7,7 +7,7 @@ std::string savestring;
 
 //parameters
 size_t NUM_INPUTS = 64;
-float INITIAL_OUTPUT_THRESHOLD = 0.0f;
+float INITIAL_OUTPUT_AVERAGE = 0.0f;
 float OUTPUT_DIVISOR = 1.0f;
 std::string savename = "weights";
 std::string trainstring = "trainset";
@@ -451,7 +451,7 @@ void initializeFixedMatrices(FixedNetMatrices* mat, FixedNetParameters* pars, bo
 	}
 
 	if (last)
-		h_thresholds[0] = INITIAL_OUTPUT_THRESHOLD;
+		h_thresholds[0] = -INITIAL_OUTPUT_AVERAGE/OUTPUT_DIVISOR;
 
 	checkCudaErrors(cudaMalloc(&mat->outThresholds, numThresholds*sizeof(float)));
 	checkCudaErrors(cudaMemcpy(mat->outThresholds, h_thresholds, numThresholds*sizeof(float), cudaMemcpyHostToDevice));
@@ -937,8 +937,8 @@ void loadParameters(std::string parName) {
 		lss >> var;
 		if (var == "NUM_INPUTS")
 			lss >> NUM_INPUTS;
-		else if (var == "INITIAL_OUTPUT_THRESHOLD")
-			lss >> INITIAL_OUTPUT_THRESHOLD;
+		else if (var == "INITIAL_OUTPUT_AVERAGE")
+			lss >> INITIAL_OUTPUT_AVERAGE;
 		else if (var == "OUTPUT_DIVISOR")
 			lss >> OUTPUT_DIVISOR;
 		else if (var == "savename")
@@ -947,5 +947,188 @@ void loadParameters(std::string parName) {
 			lss >> trainstring;
 		else if (var == "randtrainstring")
 			lss >> randtrainstring;
+	}
+}
+
+float sampleTestSim(LayerCollection layers, std::string ofname) {
+	float* d_inputs;
+	if (layers.numConvolutions > 0) {
+		if (layers.convPars[0].numInputLocs != NUM_INPUTS || layers.convPars[0].numInputNeurons != 1)
+			throw std::runtime_error("inputs to first layer don't match data set");
+		d_inputs = layers.convMat[0].inlayer;
+	}
+	else if (layers.numFixedNets > 0) {
+		if (layers.fixedPars[0].numInputNeurons != NUM_INPUTS)
+			throw std::runtime_error("inputs to first layer don't match data set");
+		d_inputs = layers.fixedMat[0].inlayer;
+	}
+	else
+		throw std::runtime_error("tried to run on a network with no convolutions and no fixed networks");
+
+	float h_output[1];
+
+	float error = 0;
+	size_t numerrors = 0;
+	size_t currentSample = 0;
+	if (trainset.size() > 0)
+		currentSample = trainset[0].samplenum;
+	std::vector<float> sampleoutputs;
+
+	std::ofstream outfile;
+	if (ofname != "")
+		outfile.open(ofname);
+
+	for (size_t i = 0; i < trainset.size(); i++) {
+		//----calculate----
+		checkCudaErrors(cudaMemcpy(d_inputs, &trainset[i].inputs[0], NUM_INPUTS*sizeof(float), cudaMemcpyHostToDevice));
+
+		calculate(layers);
+
+		checkCudaErrors(cudaMemcpy(h_output, layers.fixedMat[layers.numFixedNets - 1].outlayer, sizeof(float), cudaMemcpyDeviceToHost));
+		//----end calculate-----
+
+		sampleoutputs.push_back(h_output[0]);
+
+		if (i == trainset.size() - 1 || trainset[i + 1].samplenum != currentSample) {
+			numerrors++;
+			float origmean = mean(sampleoutputs);
+			float origdev = stdev(sampleoutputs, origmean);
+			for (size_t j = 0; j < sampleoutputs.size(); j++) {
+				if (fabs(sampleoutputs[j] - origmean) > origdev) {
+					sampleoutputs.erase(sampleoutputs.begin() + j);
+					j--;
+				}
+			}
+			float newmean = mean(sampleoutputs);
+			float newstdev = stdev(sampleoutputs, newmean);
+			float correct = trainset[i].correctoutput;
+			float newerror = newmean - correct;
+			error += fabs(newerror);
+
+			std::cout << "Sample " << currentSample << "| Actual: " << correct << " Measured: " << newmean << " +/- " << newstdev << " Error: " << newerror << std::endl;
+			if (outfile.is_open()) {
+				outfile << currentSample << " " << correct << " " << newmean << " " << newstdev << " " << newerror << std::endl;
+			}
+
+			sampleoutputs.clear();
+			if (i < trainset.size() - 1)
+				currentSample = trainset[i + 1].samplenum;
+		}
+	}
+
+	if (numerrors > 0) {
+		error /= numerrors;
+		//error = sqrt(error);
+	}
+	return error;
+}
+
+bool discardInput(float* inputs) {
+	if (NUM_INPUTS < 10)
+		return false;
+
+	float begAvg = 0;
+	for (size_t i = 0; i < 5; i++) {
+		begAvg += inputs[i];
+	}
+	begAvg /= 5;
+
+	float endAvg = 0;
+	for (size_t i = 0; i < 5; i++) {
+		endAvg += inputs[NUM_INPUTS - i - 1];
+	}
+	endAvg /= 5;
+
+	return fabs(begAvg - endAvg) > 1;
+}
+
+void sampleReadTrainSet(std::string learnsetname, bool discard, size_t* numDiscards) {
+	if (numDiscards != NULL) {
+		numDiscards[0] = 0;
+		numDiscards[1] = 0;
+	}
+	size_t samplenum = 1;
+	trainset.clear();
+	std::stringstream learnsetss;
+	learnsetss << datastring << learnsetname;
+	std::ifstream learnset(learnsetss.str().c_str());
+	std::string line;
+	while (getline(learnset, line)) {
+		std::stringstream lss(line);
+		std::string fname;
+		int column;
+		int sstart;
+		int send;
+		float correctoutput;
+
+		lss >> fname;
+		lss >> column;
+		lss >> sstart;
+		lss >> send;
+		lss >> correctoutput;
+
+		std::stringstream fullfname;
+		fullfname << datastring << fname;
+		std::ifstream datafile(fullfname.str().c_str());
+		if (!datafile.is_open()) {
+			std::stringstream errormsg;
+			errormsg << "Couldn't open file " << fullfname.str() << std::endl;
+			throw std::runtime_error(errormsg.str().c_str());
+		}
+		std::string dline;
+
+		std::list<float> inputs;
+		for (int i = 1; i <= send && getline(datafile, dline); i++) {
+			if (i < sstart)
+				continue;
+
+			std::string dum;
+			std::stringstream dliness(dline);
+			float in;
+			for (int j = 0; j<column - 1; j++)
+				dliness >> dum;
+
+			dliness >> in;
+			inputs.push_back(in);
+			if (inputs.size() > NUM_INPUTS)
+				inputs.pop_front();
+
+			if (inputs.size() == NUM_INPUTS) {
+				IOPair io;
+				io.inputs.resize(NUM_INPUTS);
+				io.correctoutput = correctoutput;
+				io.samplenum = samplenum;
+
+				size_t n = 0;
+				for (std::list<float>::iterator it = inputs.begin(); it != inputs.end(); it++) {
+					io.inputs[n] = *it;
+					n++;
+				}
+
+				float maxinput = -999999;
+				float mininput = 999999;
+				for (size_t j = 0; j<NUM_INPUTS; j++) {
+					if (io.inputs[j] > maxinput)
+						maxinput = io.inputs[j];
+					if (io.inputs[j] < mininput)
+						mininput = io.inputs[j];
+				}
+				for (size_t j = 0; j<NUM_INPUTS; j++) {
+					if (maxinput > mininput)
+						io.inputs[j] = 2 * (io.inputs[j] - mininput) / (maxinput - mininput) - 1;
+					else
+						io.inputs[j] = 0;
+				}
+
+				if (!discard || !discardInput(&io.inputs[0]))
+					trainset.push_back(io);
+				else if (numDiscards != NULL)
+					numDiscards[0]++;
+
+				if (numDiscards != NULL)
+					numDiscards[1]++;
+			}
+		}
+		samplenum++;
 	}
 }

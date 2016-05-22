@@ -69,4 +69,7 @@ void saveExplicitTrainSet(std::string learnsetname);
 
 void loadParameters(std::string parName);
 
+void sampleReadTrainSet(std::string learnsetname, bool discard, size_t* numDiscards);
+float sampleTestSim(LayerCollection layers, std::string ofname);
+
 #endif

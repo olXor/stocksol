@@ -16,7 +16,7 @@ extern size_t NUM_INPUTS;
 
 #define STEPFACTOR 1e-4f
 
-extern float INITIAL_OUTPUT_THRESHOLD;
+extern float INITIAL_OUTPUT_AVERAGE;
 
 #define TRADE_TYPE_LONG 1
 #define TRADE_TYPE_SHORT 0
