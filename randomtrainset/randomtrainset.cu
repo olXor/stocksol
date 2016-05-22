@@ -6,6 +6,7 @@
 int main() {
 	srand((size_t)time(NULL));
 	setStrings(datastring, savestring);
+	loadParameters("../stockproj/pars.cfg");
 
 	size_t numSamples = readTrainSet(trainstring);
 	std::cout << numSamples << " samples read" << std::endl;
