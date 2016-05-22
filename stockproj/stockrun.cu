@@ -559,7 +559,10 @@ LayerCollection createLayerCollection() {
 	conv1.numInputLocs = 64;
 	conv1.convSize = 5;
 	conv1.numOutputLocs = 60;
-	conv1.numInputNeurons = 1;
+	if (NUM_INPUTS == 64)
+		conv1.numInputNeurons = 1;
+	else
+		conv1.numInputNeurons = NUM_NEURONS;
 	conv1.numOutputNeurons = NUM_NEURONS;
 
 	conv1.forBlockX = conv1.numInputNeurons;
