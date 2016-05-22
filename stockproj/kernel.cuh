@@ -8,6 +8,10 @@ struct ConvolutionMatrices {
 	float* outlayer;
 	float* weights;
 	float* outThresholds;
+#ifdef BATCH_MODE
+	float* weightChanges;
+	float* outThreshChanges;
+#endif
 	float* outTDs;
 	float* inErrors;
 	float* outErrors;
@@ -63,6 +67,10 @@ struct FixedNetMatrices {
 	float* outlayer;
 	float* weights;
 	float* outThresholds;
+#ifdef BATCH_MODE
+	float* weightChanges;
+	float* outThreshChanges;
+#endif
 	float* outTDs;
 	float* inErrors;
 	float* outErrors;
@@ -102,6 +110,11 @@ __global__ void bpMaxPool(MaxPoolMatrices* mat, MaxPoolParameters* pars);
 
 __global__ void calcFixedNet(FixedNetMatrices* mat, FixedNetParameters* pars);
 __global__ void bpFixedNet(FixedNetMatrices* mat, FixedNetParameters* pars);
+
+#ifdef BATCH_MODE
+__global__ void batchUpdateConvWeights(ConvolutionMatrices* mat, ConvolutionParameters* pars);
+__global__ void batchUpdateFixedWeights(FixedNetMatrices* mat, FixedNetParameters* pars);
+#endif
 
 size_t getCalcFixedSharedSize(FixedNetParameters* pars);
 size_t getBPFixedNetSharedSize(FixedNetParameters* pars);

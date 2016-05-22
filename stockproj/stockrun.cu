@@ -381,6 +381,11 @@ void initializeConvolutionMatrices(ConvolutionMatrices* mat, ConvolutionParamete
 	checkCudaErrors(cudaMemcpy(mat->weights, h_weights, numWeights*sizeof(float), cudaMemcpyHostToDevice));
 	delete[] h_weights;
 
+#ifdef BATCH_MODE
+	checkCudaErrors(cudaMalloc(&mat->weightChanges, numWeights*sizeof(float)));
+	checkCudaErrors(cudaMemset(mat->weightChanges, 0, numWeights*sizeof(float)));
+#endif
+
 	size_t numThresholds = pars->numOutputNeurons;
 	float* h_thresholds = new float[numThresholds];
 	for (size_t i = 0; i < numThresholds; i++){
@@ -389,6 +394,11 @@ void initializeConvolutionMatrices(ConvolutionMatrices* mat, ConvolutionParamete
 	checkCudaErrors(cudaMalloc(&mat->outThresholds, numThresholds*sizeof(float)));
 	checkCudaErrors(cudaMemcpy(mat->outThresholds, h_thresholds, numThresholds*sizeof(float), cudaMemcpyHostToDevice));
 	delete[] h_thresholds;
+
+#ifdef BATCH_MODE
+	checkCudaErrors(cudaMalloc(&mat->outThreshChanges, numThresholds*sizeof(float)));
+	checkCudaErrors(cudaMemset(mat->outThreshChanges, 0, numThresholds*sizeof(float)));
+#endif
 
 	checkCudaErrors(cudaMalloc(&mat->outTDs, pars->numOutputNeurons*pars->numOutputLocs*sizeof(float)));
 	checkCudaErrors(cudaMalloc(&mat->inErrors, pars->numInputNeurons*pars->numInputLocs*sizeof(float)));
@@ -429,6 +439,11 @@ void initializeFixedMatrices(FixedNetMatrices* mat, FixedNetParameters* pars, bo
 	checkCudaErrors(cudaMemcpy(mat->weights, h_weights, numWeights*sizeof(float), cudaMemcpyHostToDevice));
 	delete[] h_weights;
 
+#ifdef BATCH_MODE
+	checkCudaErrors(cudaMalloc(&mat->weightChanges, numWeights*sizeof(float)));
+	checkCudaErrors(cudaMemset(mat->weightChanges, 0, numWeights*sizeof(float)));
+#endif
+
 	size_t numThresholds = pars->numOutputNeurons;
 	float* h_thresholds = new float[numThresholds];
 	for (size_t i = 0; i < numThresholds; i++){
@@ -441,6 +456,11 @@ void initializeFixedMatrices(FixedNetMatrices* mat, FixedNetParameters* pars, bo
 	checkCudaErrors(cudaMalloc(&mat->outThresholds, numThresholds*sizeof(float)));
 	checkCudaErrors(cudaMemcpy(mat->outThresholds, h_thresholds, numThresholds*sizeof(float), cudaMemcpyHostToDevice));
 	delete[] h_thresholds;
+
+#ifdef BATCH_MODE
+	checkCudaErrors(cudaMalloc(&mat->outThreshChanges, numThresholds*sizeof(float)));
+	checkCudaErrors(cudaMemset(mat->outThreshChanges, 0, numThresholds*sizeof(float)));
+#endif
 
 	checkCudaErrors(cudaMalloc(&mat->outTDs, pars->numOutputNeurons*sizeof(float)));
 	checkCudaErrors(cudaMalloc(&mat->inErrors, pars->numInputNeurons*sizeof(float)));
@@ -503,7 +523,6 @@ LayerCollection createLayerCollection() {
 	LayerCollection layers;
 
 	//set up layers manually for now
-	/*
 	if (NUM_INPUTS == 136) {
 		ConvolutionParameters conv0;
 		conv0.numInputLocs = 136;
@@ -535,7 +554,6 @@ LayerCollection createLayerCollection() {
 
 		layers.mpPars.push_back(mp0);
 	}
-	*/
 
 	ConvolutionParameters conv1;
 	conv1.numInputLocs = 64;
@@ -743,6 +761,24 @@ void backPropagate(LayerCollection layers) {
 	}
 }
 
+#ifdef BATCH_MODE
+void batchUpdate(LayerCollection layers) {
+	for (size_t i = 0; i < layers.numConvolutions; i++) {
+		size_t numWeights = layers.convPars[i].numInputNeurons*layers.convPars[i].numOutputNeurons*layers.convPars[i].convSize;
+		size_t numBlocks = numWeights % 256 == 0 ? numWeights / 256 : numWeights / 256 + 1;
+		batchUpdateConvWeights << <numBlocks, 256 >> >(layers.d_convMat[i], layers.d_convPars[i]);
+		checkCudaErrors(cudaPeekAtLastError());
+	}
+
+	for (size_t i = 0; i < layers.numFixedNets; i++) {
+		size_t numWeights = layers.fixedPars[i].numInputNeurons*layers.fixedPars[i].numOutputNeurons;
+		size_t numBlocks = numWeights % 256 == 0 ? numWeights / 256 : numWeights / 256 + 1;
+		batchUpdateFixedWeights << <numBlocks, 256 >> >(layers.d_fixedMat[i], layers.d_fixedPars[i]);
+		checkCudaErrors(cudaPeekAtLastError());
+	}
+}
+#endif
+
 float mean(std::vector<float> in) {
 	float mean = 0;
 	for (size_t i = 0; i < in.size(); i++) {
@@ -889,8 +925,8 @@ size_t readExplicitTrainSet(std::string learnsetname, size_t begin, size_t numIO
 	return ionum;
 }
 
-void loadParameters() {
-	std::ifstream infile("pars.cfg");
+void loadParameters(std::string parName) {
+	std::ifstream infile(parName.c_str());
 	std::string line;
 	while (getline(infile, line)) {
 		std::stringstream lss(line);

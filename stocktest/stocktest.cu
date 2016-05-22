@@ -13,6 +13,7 @@ size_t readData(size_t begin, size_t numIOs);
 
 int main() {
 	srand((size_t)time(NULL));
+	loadParameters("../stockproj/pars.cfg");
 	setStrings(datastring, savestring);
 
 	LayerCollection layers = createLayerCollection();

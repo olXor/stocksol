@@ -3,18 +3,14 @@
 
 #define nIter 5
 
-//#define initialTrainSamples 2
 size_t initialTrainSamples = 2;
 size_t trainSamplesIncreaseFactor = 2;
-//#define trainIncreaseThreshold 100.0f
 float trainIncreaseThreshold = 100.0f;
 
-//#define initialStepMult 10.0f
 float initialStepMult = 40.0f;
-//#define minimumStepMult 1.0f
 float minimumStepMult = 0.5f;
-//#define stepMultDecFactor 0.707f
 float stepMultDecFactor = 0.707f;
+float annealingStartError = 500.0f;
 
 size_t backupInterval = 0;
 
@@ -38,13 +34,37 @@ size_t numRunSetStart;
 
 float stepMult;
 
+#define ERRORS_SAVED 5
+std::list<float> lastErrors;
+
+float annealingMultiplier() {
+	if (lastErrors.size() == 0 || annealingStartError == 0)
+		return 1;
+
+	float avg = 0;
+	for (std::list<float>::const_iterator it = lastErrors.begin(); it != lastErrors.end(); it++) {
+		avg += *it;
+	}
+	avg /= lastErrors.size();
+
+	if (avg > annealingStartError)
+		return 1;
+	return avg / annealingStartError;
+}
+
 float stepMultiplier(size_t numRuns) {
-	return stepMult;
+	return annealingMultiplier()*stepMult;
+}
+
+void updateLastErrors(float error) {
+	lastErrors.push_back(error);
+	if (lastErrors.size() > ERRORS_SAVED)
+		lastErrors.pop_front();
 }
 
 int main() {
 	srand((size_t)time(NULL));
-	loadParameters();
+	loadParameters("pars.cfg");
 	loadLocalParameters();
 
 	setStrings(datastring, savestring);
@@ -61,6 +81,17 @@ int main() {
 
 	size_t numSamples = readData(1, trainSamples);
 
+	std::cout << "Calculating initial error: ";
+	auto initstart = std::chrono::high_resolution_clock::now();
+
+	float initError = runSim(layers, false, 0);
+
+	auto initelapsed = std::chrono::high_resolution_clock::now() - initstart;
+	long long inittime = std::chrono::duration_cast<std::chrono::microseconds>(initelapsed).count();
+
+	std::cout << inittime / 1000000 << " s, Error: " << initError << std::endl;
+	updateLastErrors(initError);
+
 	while (true) {
 		std::cout << nIter << "+1 runs on " << numSamples << " samples: ";
 		auto gpustart = std::chrono::high_resolution_clock::now();
@@ -69,9 +100,13 @@ int main() {
 
 		for (size_t i = 0; i < nIter; i++) {
 			runSim(layers, true, stepMultiplier(numRuns));
+#ifdef BATCH_MODE
+			batchUpdate(layers);
+#endif
 		}
 
 		float afterError = runSim(layers, false, 0);
+		updateLastErrors(afterError);
 
 		auto gpuelapsed = std::chrono::high_resolution_clock::now() - gpustart;
 		long long gputime = std::chrono::duration_cast<std::chrono::microseconds>(gpuelapsed).count();
@@ -175,6 +210,8 @@ void loadLocalParameters() {
 			lss >> minimumStepMult;
 		else if (var == "stepMultDecFactor")
 			lss >> stepMultDecFactor;
+		else if (var == "annealingStartError")
+			lss >> annealingStartError;
 		else if (var == "initialTrainSamples")
 			lss >> initialTrainSamples;
 		else if (var == "trainSamplesIncreaseFactor")

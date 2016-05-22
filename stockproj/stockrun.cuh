@@ -56,6 +56,9 @@ void copyLayersToDevice(LayerCollection* layers);
 
 void calculate(LayerCollection layers);
 void backPropagate(LayerCollection layers);
+#ifdef BATCH_MODE
+void batchUpdate(LayerCollection layers);
+#endif
 
 LayerCollection createLayerCollection();
 
@@ -64,6 +67,6 @@ void randomizeTrainSet();
 size_t readExplicitTrainSet(std::string learnsetname, size_t begin, size_t numIOs);
 void saveExplicitTrainSet(std::string learnsetname);
 
-void loadParameters();
+void loadParameters(std::string parName);
 
 #endif
