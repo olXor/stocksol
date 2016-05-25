@@ -452,6 +452,7 @@ C:\Program Files (x86)\Microsoft Visual Studio 12.0\VC\include\crtdefs.h
 C:\Program Files (x86)\Microsoft Visual Studio 12.0\VC\include\locale.h
 C:\Program Files (x86)\Microsoft Visual Studio 12.0\VC\include\crtdefs.h
 C:\Program Files (x86)\Microsoft Visual Studio 12.0\VC\include\xdebug
+C:\Program Files (x86)\Microsoft Visual Studio 12.0\VC\include\xmemory
 C:\Program Files (x86)\Microsoft Visual Studio 12.0\VC\include\xfacet
 C:\Program Files (x86)\Microsoft Visual Studio 12.0\VC\include\system_error
 C:\Program Files (x86)\Microsoft Visual Studio 12.0\VC\include\cerrno
@@ -473,7 +474,6 @@ C:\Program Files (x86)\Microsoft Visual Studio 12.0\VC\include\thr/xthrcommon.h
 C:\Program Files (x86)\Microsoft Visual Studio 12.0\VC\include\iostream
 C:\Program Files (x86)\Microsoft Visual Studio 12.0\VC\include\sstream
 C:\Program Files (x86)\Microsoft Visual Studio 12.0\VC\include\vector
-C:\Program Files (x86)\Microsoft Visual Studio 12.0\VC\include\xmemory
 C:\Program Files (x86)\Microsoft Visual Studio 12.0\VC\include\list
 C:\Program Files (x86)\Microsoft Visual Studio 12.0\VC\include\memory
 C:\Program Files (x86)\Windows Kits\8.1\Include\um\Shlwapi.h

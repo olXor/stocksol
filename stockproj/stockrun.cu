@@ -89,7 +89,20 @@ float runSim(LayerCollection layers, bool train, float customStepFactor, bool pr
 	else
 		throw std::runtime_error("tried to run on a network with no convolutions and no fixed networks");
 
-	float h_output[1];
+	float* h_output, *d_output;
+	//checkCudaErrors(cudaSetDeviceFlags(cudaDeviceMapHost));
+	checkCudaErrors(cudaHostAlloc(&h_output, sizeof(float), cudaHostAllocMapped));
+	checkCudaErrors(cudaHostGetDevicePointer(&d_output, h_output, 0));
+
+	float stepfac = STEPFACTOR*customStepFactor;
+	checkCudaErrors(cudaMemcpyAsync(layers.stepfactor, &stepfac, sizeof(float), cudaMemcpyHostToDevice));
+
+	cudaStream_t mainStream;
+	//checkCudaErrors(cudaStreamCreate(&mainStream));
+	mainStream = 0;
+
+	cudaEvent_t calcDone;
+	checkCudaErrors(cudaEventCreate(&calcDone));
 
 	float error = 0;
 	size_t numerrors = 0;
@@ -97,12 +110,25 @@ float runSim(LayerCollection layers, bool train, float customStepFactor, bool pr
 		numerrors++;
 
 		//----calculate----
-		checkCudaErrors(cudaMemcpy(d_inputs, &trainset[i].inputs[0], NUM_INPUTS*sizeof(float), cudaMemcpyHostToDevice));
+		checkCudaErrors(cudaMemcpyAsync(d_inputs, &trainset[i].inputs[0], NUM_INPUTS*sizeof(float), cudaMemcpyHostToDevice, mainStream));
 
-		calculate(layers);
+		calculate(layers, mainStream);
 
-		checkCudaErrors(cudaMemcpy(h_output, layers.fixedMat[layers.numFixedNets-1].outlayer, sizeof(float), cudaMemcpyDeviceToHost));
+		//checkCudaErrors(cudaMemcpyAsync(h_output, layers.fixedMat[layers.numFixedNets-1].outlayer, sizeof(float), cudaMemcpyDeviceToHost, mainStream));
+
 		//----end calculate-----
+
+		checkCudaErrors(cudaMemcpyAsync(layers.correctoutput, &trainset[i].correctoutput, sizeof(float), cudaMemcpyHostToDevice, mainStream));
+
+		calculateOutputError << <1, 2, 0, mainStream >> >(layers.d_fixedMat[layers.numFixedNets - 1], layers.stepfactor, layers.correctoutput, d_output);
+
+		checkCudaErrors(cudaEventRecord(calcDone, mainStream));
+
+		if (train) {
+			backPropagate(layers, mainStream);
+		}
+
+		checkCudaErrors(cudaEventSynchronize(calcDone));
 
 		float newerror = (h_output[0] - trainset[i].correctoutput);
 		//error += newerror*newerror;
@@ -116,24 +142,6 @@ float runSim(LayerCollection layers, bool train, float customStepFactor, bool pr
 			std::cout << std::endl;
 			*/
 			std::cout << "Output: " << h_output[0]*OUTPUT_DIVISOR << ", Correct: " << trainset[i].correctoutput*OUTPUT_DIVISOR << ", Error: " << newerror << std::endl;
-		}
-		if (train) {
-			float stepfac = STEPFACTOR*customStepFactor;
-
-			float bperror[1];
-			bperror[0] = stepfac*newerror;
-#ifdef MAX_STEP
-			if (bperror[0] > MAX_STEP)
-				bperror[0] = MAX_STEP;
-			else if (bperror[0] < -MAX_STEP)
-				bperror[0] = -MAX_STEP;
-#endif
-
-			//---back propagate----
-			checkCudaErrors(cudaMemcpy(layers.fixedMat[layers.numFixedNets - 1].outErrors, bperror, sizeof(float), cudaMemcpyHostToDevice));
-
-			backPropagate(layers);
-			//---end back propagate----
 		}
 	}
 
@@ -366,6 +374,9 @@ void initializeLayers(LayerCollection* layers){
 	}
 
 	copyLayersToDevice(layers);
+
+	checkCudaErrors(cudaMalloc(&layers->stepfactor, sizeof(float)));
+	checkCudaErrors(cudaMalloc(&layers->correctoutput, sizeof(float)));
 }
 
 void initializeConvolutionMatrices(ConvolutionMatrices* mat, ConvolutionParameters* pars) {
@@ -405,7 +416,8 @@ void initializeConvolutionMatrices(ConvolutionMatrices* mat, ConvolutionParamete
 	checkCudaErrors(cudaMalloc(&mat->outErrors, pars->numOutputNeurons*pars->numOutputLocs*sizeof(float)));
 
 	mat->forwardSharedMem = getConvolveSharedSize(pars);
-	mat->backwardSharedMem = getBPConvolutionSharedSize(pars);
+	mat->backPropErrSharedMem = getBPEConvolutionSharedSize(pars);
+	mat->backUpdateSharedMem = getBackUpdateConvolutionSharedSize(pars);
 	mat->numInputElements = pars->numInputNeurons*pars->numInputLocs;
 	mat->numOutputElements = pars->numOutputNeurons*pars->numOutputLocs;
 }
@@ -535,10 +547,14 @@ LayerCollection createLayerCollection() {
 		conv0.forBlockY = conv0.numOutputNeurons;
 		conv0.forNBlockX = conv0.numOutputLocs;
 		conv0.forNBlockY = 1;
-		conv0.backBlockX = conv0.numOutputNeurons;
-		conv0.backBlockY = 8;//conv0.numInputLocs/4;
-		conv0.backNBlockX = conv0.numInputNeurons;
-		conv0.backNBlockY = 1;
+		conv0.backPropErrBlockX = conv0.numOutputNeurons;
+		conv0.backPropErrBlockY = conv0.convSize;
+		conv0.backPropErrNBlockX = conv0.numInputNeurons;
+		conv0.backPropErrNBlockY = conv0.numInputLocs;
+		conv0.backUpdateBlockX = conv0.numOutputLocs;
+		conv0.backUpdateNBlockX = conv0.numInputNeurons;
+		conv0.backUpdateNBlockY = conv0.numOutputNeurons;
+		conv0.backUpdateNBlockZ = conv0.convSize;
 
 		layers.convPars.push_back(conv0);
 
@@ -569,10 +585,14 @@ LayerCollection createLayerCollection() {
 	conv1.forBlockY = conv1.numOutputNeurons;
 	conv1.forNBlockX = conv1.numOutputLocs;
 	conv1.forNBlockY = 1;
-	conv1.backBlockX = conv1.numOutputNeurons;
-	conv1.backBlockY = conv1.numInputLocs/4;
-	conv1.backNBlockX = conv1.numInputNeurons;
-	conv1.backNBlockY = 1;
+	conv1.backPropErrBlockX = conv1.numOutputNeurons;
+	conv1.backPropErrBlockY = conv1.convSize;
+	conv1.backPropErrNBlockX = conv1.numInputNeurons;
+	conv1.backPropErrNBlockY = conv1.numInputLocs;
+	conv1.backUpdateBlockX = conv1.numOutputLocs;
+	conv1.backUpdateNBlockX = conv1.numInputNeurons;
+	conv1.backUpdateNBlockY = conv1.numOutputNeurons;
+	conv1.backUpdateNBlockZ = conv1.convSize;
 	
 	layers.convPars.push_back(conv1);
 
@@ -599,10 +619,14 @@ LayerCollection createLayerCollection() {
 	conv2.forBlockY = conv2.numOutputNeurons;
 	conv2.forNBlockX = conv2.numOutputLocs;
 	conv2.forNBlockY = 1;
-	conv2.backBlockX = conv2.numOutputNeurons;
-	conv2.backBlockY = conv2.numInputLocs/2;
-	conv2.backNBlockX = conv2.numInputNeurons;
-	conv2.backNBlockY = 1;
+	conv2.backPropErrBlockX = conv2.numOutputNeurons;
+	conv2.backPropErrBlockY = conv2.convSize;
+	conv2.backPropErrNBlockX = conv2.numInputNeurons;
+	conv2.backPropErrNBlockY = conv2.numInputLocs;
+	conv2.backUpdateBlockX = conv2.numOutputLocs;
+	conv2.backUpdateNBlockX = conv2.numInputNeurons;
+	conv2.backUpdateNBlockY = conv2.numOutputNeurons;
+	conv2.backUpdateNBlockZ = conv2.convSize;
 	
 	layers.convPars.push_back(conv2);
 
@@ -629,10 +653,14 @@ LayerCollection createLayerCollection() {
 	conv3.forBlockY = conv3.numOutputNeurons;
 	conv3.forNBlockX = conv3.numOutputLocs;
 	conv3.forNBlockY = 1;
-	conv3.backBlockX = conv3.numOutputNeurons;
-	conv3.backBlockY = conv3.numInputLocs;
-	conv3.backNBlockX = conv3.numInputNeurons;
-	conv3.backNBlockY = 1;
+	conv3.backPropErrBlockX = conv3.numOutputNeurons;
+	conv3.backPropErrBlockY = conv3.convSize;
+	conv3.backPropErrNBlockX = conv3.numInputNeurons;
+	conv3.backPropErrNBlockY = conv3.numInputLocs;
+	conv3.backUpdateBlockX = conv3.numOutputLocs;
+	conv3.backUpdateNBlockX = conv3.numInputNeurons;
+	conv3.backUpdateNBlockY = conv3.numOutputNeurons;
+	conv3.backUpdateNBlockZ = conv3.convSize;
 	
 	layers.convPars.push_back(conv3);
 
@@ -659,10 +687,14 @@ LayerCollection createLayerCollection() {
 	conv4.forBlockY = conv4.numOutputNeurons;
 	conv4.forNBlockX = conv4.numOutputLocs;
 	conv4.forNBlockY = 1;
-	conv4.backBlockX = conv4.numOutputNeurons;
-	conv4.backBlockY = conv4.numInputLocs;
-	conv4.backNBlockX = conv4.numInputNeurons;
-	conv4.backNBlockY = 1;
+	conv4.backPropErrBlockX = conv4.numOutputNeurons;
+	conv4.backPropErrBlockY = conv4.convSize;
+	conv4.backPropErrNBlockX = conv4.numInputNeurons;
+	conv4.backPropErrNBlockY = conv4.numInputLocs;
+	conv4.backUpdateBlockX = conv4.numOutputLocs;
+	conv4.backUpdateNBlockX = conv4.numInputNeurons;
+	conv4.backUpdateNBlockY = conv4.numOutputNeurons;
+	conv4.backUpdateNBlockZ = conv4.convSize;
 	
 	layers.convPars.push_back(conv4);
 
@@ -718,17 +750,17 @@ LayerCollection createLayerCollection() {
 	return layers;
 }
 
-void calculate(LayerCollection layers) {
+void calculate(LayerCollection layers, cudaStream_t stream) {
 	for (size_t j = 0; j < layers.numConvolutions; j++) {
 		dim3 nBlocks(layers.convPars[j].forNBlockX, layers.convPars[j].forNBlockY);
 		dim3 shape(layers.convPars[j].forBlockX, layers.convPars[j].forBlockY);
-		convolve << <nBlocks, shape, layers.convMat[j].forwardSharedMem >> > (layers.d_convMat[j], layers.d_convPars[j]);
+		convolve << <nBlocks, shape, layers.convMat[j].forwardSharedMem, stream >> > (layers.d_convMat[j], layers.d_convPars[j]);
 		checkCudaErrors(cudaPeekAtLastError());
 
 		if (layers.mpMat.size() > j) {
 			dim3 mpNBlocks(layers.mpPars[j].nBlockX, layers.mpPars[j].nBlockY);
 			dim3 mpShape(layers.mpPars[j].blockX, layers.mpPars[j].blockY);
-			calcMaxPool << <mpNBlocks, mpShape >> >(layers.d_mpMat[j], layers.d_mpPars[j]);
+			calcMaxPool << <mpNBlocks, mpShape, 0, stream >> >(layers.d_mpMat[j], layers.d_mpPars[j]);
 			checkCudaErrors(cudaPeekAtLastError());
 		}
 	}
@@ -736,16 +768,16 @@ void calculate(LayerCollection layers) {
 	for (size_t j = 0; j < layers.numFixedNets; j++) {
 		dim3 nBlocks(layers.fixedPars[j].forNBlockX, layers.fixedPars[j].forNBlockY);
 		dim3 shape(layers.fixedPars[j].forBlockX, layers.fixedPars[j].forBlockY);
-		calcFixedNet << <nBlocks, shape, layers.fixedMat[j].forwardSharedMem >> >(layers.d_fixedMat[j], layers.d_fixedPars[j]);
+		calcFixedNet << <nBlocks, shape, layers.fixedMat[j].forwardSharedMem, stream >> >(layers.d_fixedMat[j], layers.d_fixedPars[j]);
 		checkCudaErrors(cudaPeekAtLastError());
 	}
 }
 
-void backPropagate(LayerCollection layers) {
+void backPropagate(LayerCollection layers, cudaStream_t stream) {
 	for (size_t j = layers.numFixedNets - 1; j < layers.numFixedNets; j--) {
 		dim3 nBlocks(layers.fixedPars[j].backNBlockX, layers.fixedPars[j].backNBlockY);
 		dim3 shape(layers.fixedPars[j].backBlockX, layers.fixedPars[j].backBlockY);
-		bpFixedNet << <nBlocks, shape, layers.fixedMat[j].backwardSharedMem >> >(layers.d_fixedMat[j], layers.d_fixedPars[j]);
+		bpFixedNet << <nBlocks, shape, layers.fixedMat[j].backwardSharedMem, stream >> >(layers.d_fixedMat[j], layers.d_fixedPars[j]);
 		checkCudaErrors(cudaPeekAtLastError());
 	}
 
@@ -753,13 +785,18 @@ void backPropagate(LayerCollection layers) {
 		if (layers.mpMat.size() > j) {
 			dim3 mpNBlocks(layers.mpPars[j].nBlockX, layers.mpPars[j].nBlockY);
 			dim3 mpShape(layers.mpPars[j].blockX, layers.mpPars[j].blockY);
-			bpMaxPool << <mpNBlocks, mpShape >> >(layers.d_mpMat[j], layers.d_mpPars[j]);
+			bpMaxPool << <mpNBlocks, mpShape, 0, stream >> >(layers.d_mpMat[j], layers.d_mpPars[j]);
 			checkCudaErrors(cudaPeekAtLastError());
 		}
 
-		dim3 nBlocks(layers.convPars[j].backNBlockX, layers.convPars[j].backNBlockY);
-		dim3 shape(layers.convPars[j].backBlockX, layers.convPars[j].backBlockY);
-		bpConvolution << <nBlocks, shape, layers.convMat[j].backwardSharedMem >> >(layers.d_convMat[j], layers.d_convPars[j]);
+		dim3 nBlocks(layers.convPars[j].backPropErrNBlockX, layers.convPars[j].backPropErrNBlockY);
+		dim3 shape(layers.convPars[j].backPropErrBlockX, layers.convPars[j].backPropErrBlockY);
+		propagateErrorConvolution << <nBlocks, shape, layers.convMat[j].backPropErrSharedMem, stream >> >(layers.d_convMat[j], layers.d_convPars[j]);
+		checkCudaErrors(cudaPeekAtLastError());
+
+		dim3 nBlocks2(layers.convPars[j].backUpdateNBlockX, layers.convPars[j].backUpdateNBlockY, layers.convPars[j].backUpdateNBlockZ);
+		dim3 shape2(layers.convPars[j].backUpdateBlockX);
+		updateWeightsConvolution << <nBlocks2, shape2, layers.convMat[j].backUpdateSharedMem, stream >> >(layers.d_convMat[j], layers.d_convPars[j]);
 		checkCudaErrors(cudaPeekAtLastError());
 	}
 }

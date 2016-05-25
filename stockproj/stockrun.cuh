@@ -38,6 +38,10 @@ struct LayerCollection {
 
 	size_t numConvolutions;
 	size_t numFixedNets;
+
+	//on device:
+	float* stepfactor;
+	float* correctoutput;
 };
 
 void setStrings(std::string data, std::string save);
@@ -54,8 +58,8 @@ void initializeMPMatrices(MaxPoolMatrices* mat, MaxPoolParameters* pars);
 void initializeFixedMatrices(FixedNetMatrices* mat, FixedNetParameters* pars, bool last);
 void copyLayersToDevice(LayerCollection* layers);
 
-void calculate(LayerCollection layers);
-void backPropagate(LayerCollection layers);
+void calculate(LayerCollection layers, cudaStream_t stream = 0);
+void backPropagate(LayerCollection layers, cudaStream_t stream = 0);
 #ifdef BATCH_MODE
 void batchUpdate(LayerCollection layers);
 #endif

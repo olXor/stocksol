@@ -64,6 +64,13 @@ void updateLastErrors(float error) {
 
 int main() {
 	srand((size_t)time(NULL));
+
+	cudaDeviceProp prop;
+	checkCudaErrors(cudaGetDeviceProperties(&prop, 0));
+	if (!prop.canMapHostMemory)
+		exit(0);
+	checkCudaErrors(cudaSetDeviceFlags(cudaDeviceMapHost));
+
 	loadParameters("pars.cfg");
 	loadLocalParameters();
 

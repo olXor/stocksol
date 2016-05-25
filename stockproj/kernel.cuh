@@ -17,7 +17,8 @@ struct ConvolutionMatrices {
 	float* outErrors;
 
 	size_t forwardSharedMem;
-	size_t backwardSharedMem;
+	size_t backPropErrSharedMem;
+	size_t backUpdateSharedMem;
 
 	size_t numInputElements;
 	size_t numOutputElements;
@@ -28,10 +29,14 @@ struct ConvolutionParameters {
 	size_t forBlockY;
 	size_t forNBlockX;
 	size_t forNBlockY;
-	size_t backBlockX;
-	size_t backBlockY;
-	size_t backNBlockX;
-	size_t backNBlockY;
+	size_t backPropErrBlockX;	//outNeuron
+	size_t backPropErrBlockY;	//convLoc
+	size_t backPropErrNBlockX;	//inNeuron
+	size_t backPropErrNBlockY;	//inLoc
+	size_t backUpdateBlockX;	//outLoc
+	size_t backUpdateNBlockX;	//inNeuron;
+	size_t backUpdateNBlockY;	//outNeuron;
+	size_t backUpdateNBlockZ;	//convLoc
 
 	size_t numInputLocs;
 	size_t convSize;
@@ -100,16 +105,20 @@ struct FixedNetParameters {
 __host__ __device__ float transferFunction(float in);
 __host__ __device__ float transferDerivative(float in);
 __global__ void convolve(ConvolutionMatrices* mat, ConvolutionParameters* pars);
-__global__ void bpConvolution(ConvolutionMatrices* mat, ConvolutionParameters* pars);
+__global__ void propagateErrorConvolution(ConvolutionMatrices* mat, ConvolutionParameters* pars);
+__global__ void updateWeightsConvolution(ConvolutionMatrices* mat, ConvolutionParameters* pars);
 
 size_t getConvolveSharedSize(ConvolutionParameters* pars);
-size_t getBPConvolutionSharedSize(ConvolutionParameters* pars);
+size_t getBPEConvolutionSharedSize(ConvolutionParameters* pars);
+size_t getBackUpdateConvolutionSharedSize(ConvolutionParameters* pars);
 
 __global__ void calcMaxPool(MaxPoolMatrices* mat, MaxPoolParameters* pars);
 __global__ void bpMaxPool(MaxPoolMatrices* mat, MaxPoolParameters* pars);
 
 __global__ void calcFixedNet(FixedNetMatrices* mat, FixedNetParameters* pars);
 __global__ void bpFixedNet(FixedNetMatrices* mat, FixedNetParameters* pars);
+
+__global__ void calculateOutputError(FixedNetMatrices* mat, float* stepfactor, float* correctoutput, float* hostoutput);
 
 #ifdef BATCH_MODE
 __global__ void batchUpdateConvWeights(ConvolutionMatrices* mat, ConvolutionParameters* pars);

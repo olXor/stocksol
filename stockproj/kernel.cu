@@ -95,6 +95,97 @@ __global__ void convolve(ConvolutionMatrices* mat, ConvolutionParameters* pars) 
 	}
 }
 
+__global__ void propagateErrorConvolution(ConvolutionMatrices* mat, ConvolutionParameters* pars) {
+	size_t inNeuron = blockIdx.x;
+	size_t inLoc = blockIdx.y;
+	size_t outNeuron = threadIdx.x;
+	size_t numOutNeuronThreads = pars->backPropErrBlockX;
+	size_t convLoc = threadIdx.y;
+	size_t numConvThreads = pars->backPropErrBlockY;
+
+	size_t numOutputNeurons = pars->numOutputNeurons;
+	size_t numInputNeurons = pars->numInputNeurons;
+	size_t convSize = pars->convSize;
+	size_t numOutputLocs = pars->numOutputLocs;
+
+	extern __shared__ float inErrors[]; //convSize*numOutputNeurons
+
+	for (size_t i = outNeuron; i < numOutputNeurons; i += numOutNeuronThreads) {
+		for (size_t j = convLoc; j < convSize; j += numConvThreads) {
+			if (inLoc >= j && inLoc - j < numOutputLocs)
+				inErrors[i + j*numOutputNeurons] = mat->weights[inNeuron + i*numInputNeurons + j*numInputNeurons*numOutputNeurons] * mat->outErrors[i + (inLoc - j)*numOutputNeurons] * mat->outTDs[i + (inLoc - j)*numOutputNeurons];
+			else
+				inErrors[i + j*numOutputNeurons] = 0;
+		}
+	}
+
+	__syncthreads();
+
+	sumVector(&inErrors[0], convSize*numOutputNeurons, outNeuron + convLoc*numOutNeuronThreads, numConvThreads*numOutNeuronThreads);
+
+	if (threadIdx.x == 0 && threadIdx.y == 0) {
+		mat->inErrors[inNeuron + inLoc*numInputNeurons] = inErrors[0];
+	}
+}
+
+__global__ void updateWeightsConvolution(ConvolutionMatrices* mat, ConvolutionParameters* pars) {
+	size_t inNeuron = blockIdx.x;
+	size_t outNeuron = blockIdx.y;
+	size_t convLoc = blockIdx.z;
+
+	size_t outLoc = threadIdx.x;
+	size_t numOutLocThreads = pars->backUpdateBlockX;
+
+	size_t numOutputLocs = pars->numOutputLocs;
+	size_t numInputNeurons = pars->numInputNeurons;
+	size_t numOutputNeurons = pars->numOutputNeurons;
+
+	extern __shared__ float weightChanges[]; //numOutputLocs
+
+	//thresholds first
+	if (inNeuron == 0 && convLoc == 0) {
+		for (size_t i = outLoc; i < numOutputLocs; i += numOutLocThreads) {
+			weightChanges[i] = mat->outErrors[outNeuron + i*numOutputNeurons] * mat->outTDs[outNeuron + i*numOutputNeurons];
+		}
+
+		__syncthreads();
+
+		sumVector(&weightChanges[0], numOutputLocs, outLoc, numOutLocThreads);
+
+#ifdef BATCH_MODE
+		mat->outThreshChanges[outNeuron] += weightChanges[0];
+#else
+#ifdef MAX_WEIGHT_CHANGE
+		float change = boundChange(weightChanges[0]);
+#else
+		float change = weightChanges[0];
+#endif
+		mat->outThresholds[outNeuron] += change;
+#endif
+	}
+
+	//now the weights
+	for (size_t i = outLoc; i < numOutputLocs; i += numOutLocThreads) {
+		weightChanges[i] = mat->inlayer[inNeuron + (i + convLoc)*numInputNeurons] * mat->outErrors[outNeuron + i*numOutputNeurons] * mat->outTDs[outNeuron + i*numOutputNeurons];
+	}
+
+	__syncthreads();
+
+	sumVector(&weightChanges[0], numOutputLocs, outLoc, numOutLocThreads);
+
+#ifdef BATCH_MODE
+		mat->weightChanges[inNeuron + outNeuron*numInputNeurons + convLoc*numInputNeurons*numOutputNeurons] -= weightChanges[0];
+#else
+#ifdef MAX_WEIGHT_CHANGE
+		float change = boundChange(weightChanges[0]);
+#else
+		float change = weightChanges[0];
+#endif
+		mat->weights[inNeuron + outNeuron*numInputNeurons + convLoc*numInputNeurons*numOutputNeurons] -= change;
+#endif
+}
+
+/*
 __global__ void bpConvolution(ConvolutionMatrices* mat, ConvolutionParameters* pars) {
 	size_t inNeuron = blockIdx.x;
 	size_t numInNeuronBlocks = pars->backNBlockX;
@@ -235,6 +326,7 @@ __global__ void bpConvolution(ConvolutionMatrices* mat, ConvolutionParameters* p
 		}
 	}
 }
+*/
 
 __global__ void calcMaxPool(MaxPoolMatrices* mat, MaxPoolParameters* pars) {
 	size_t outNeuron = blockIdx.x*blockDim.x + threadIdx.x;
@@ -412,6 +504,16 @@ __global__ void batchUpdateFixedWeights(FixedNetMatrices* mat, FixedNetParameter
 }
 #endif
 
+__global__ void calculateOutputError(FixedNetMatrices* mat, float* stepfactor, float* correctoutput, float* hostoutput) {
+	if (threadIdx.x == 0) {
+		float error = *stepfactor*(mat->outlayer[0] - *correctoutput);
+		mat->outErrors[0] = error;
+	}
+	else if (threadIdx.x == 1) {
+		hostoutput[0] = mat->outlayer[0];
+	}
+}
+
 size_t getConvolveSharedSize(ConvolutionParameters* pars) {
 	size_t size = 0;
 	size += pars->convSize*pars->numInputNeurons;	//inputs
@@ -420,12 +522,15 @@ size_t getConvolveSharedSize(ConvolutionParameters* pars) {
 	return size;
 }
 
-size_t getBPConvolutionSharedSize(ConvolutionParameters* pars) {
+size_t getBPEConvolutionSharedSize(ConvolutionParameters* pars) {
 	size_t size = 0;
-	size += pars->numOutputLocs*pars->numOutputNeurons; //outThreshChanges
-	size += pars->numOutputLocs*pars->numOutputNeurons; //outErrorTDs
-	size += pars->convSize*pars->numOutputNeurons*pars->backBlockY; //inErrors and partialWeightChanges
-	size += pars->convSize*pars->numOutputNeurons; //weightChanges
+	size += pars->convSize*pars->numOutputNeurons;
+	size *= sizeof(float);
+	return size;
+}
+size_t getBackUpdateConvolutionSharedSize(ConvolutionParameters* pars) {
+	size_t size = 0;
+	size += pars->numOutputLocs;
 	size *= sizeof(float);
 	return size;
 }
