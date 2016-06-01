@@ -34,6 +34,8 @@ size_t numRunSetStart;
 
 float stepMult;
 
+bool randomizeSubsetOnThreshold = false;
+
 #define ERRORS_SAVED 5
 std::list<float> lastErrors;
 
@@ -86,12 +88,20 @@ int main() {
 	initializeLayers(&layers);
 	loadWeights(layers, savename);
 
-	size_t numSamples = readData(1, trainSamples);
+	size_t numSamples;
+	if (randomizeSubsetOnThreshold) {
+		size_t tSamples = readData(1, 0);
+		randomizeTrainSet();
+		numSamples = min(trainSamples, tSamples);
+	}
+	else {
+		numSamples = readData(1, trainSamples);
+	}
 
 	std::cout << "Calculating initial error: ";
 	auto initstart = std::chrono::high_resolution_clock::now();
 
-	float initError = runSim(layers, false, 0);
+	float initError = runSim(layers, false, 0, trainSamples);
 
 	auto initelapsed = std::chrono::high_resolution_clock::now() - initstart;
 	long long inittime = std::chrono::duration_cast<std::chrono::microseconds>(initelapsed).count();
@@ -103,16 +113,20 @@ int main() {
 		std::cout << nIter << "+1 runs on " << numSamples << " samples: ";
 		auto gpustart = std::chrono::high_resolution_clock::now();
 
-		randomizeTrainSet();
+		if (randomizeSubsetOnThreshold) {
+			randomizeTrainSet(trainSamples);
+		}
+		else
+			randomizeTrainSet();
 
 		for (size_t i = 0; i < nIter; i++) {
-			runSim(layers, true, stepMultiplier(numRuns));
+			runSim(layers, true, stepMultiplier(numRuns), trainSamples);
 #ifdef BATCH_MODE
 			batchUpdate(layers);
 #endif
 		}
 
-		float afterError = runSim(layers, false, 0);
+		float afterError = runSim(layers, false, 0, trainSamples);
 		updateLastErrors(afterError);
 
 		auto gpuelapsed = std::chrono::high_resolution_clock::now() - gpustart;
@@ -125,9 +139,14 @@ int main() {
 			saveSetHistory(numSamples, numRuns - numRunSetStart, stepMult);
 			numRunSetStart = numRuns;
 			trainSamples = min(trainSamplesIncreaseFactor * trainSamples, totalSamples);
-			numSamples = readData(1, trainSamples);
-			if (stepMultDecFactor > 0)
-				stepMult = max(stepMultDecFactor*stepMult, minimumStepMult);
+			if (randomizeSubsetOnThreshold) {
+				randomizeTrainSet();
+				numSamples = trainSamples;
+				std::cout << "Starting new run on " << numSamples << " samples" << std::endl;
+			}
+			else
+				numSamples = readData(1, trainSamples);
+			stepMult = max(stepMultDecFactor*stepMult, minimumStepMult);
 		}
 
 		if (backupInterval > 0 && (numRuns - numRunSetStart) % backupInterval == 0) {
@@ -188,7 +207,11 @@ void saveSimVariables() {
 }
 
 size_t readData(size_t begin, size_t numIOs) {
-	std::cout << "Reading " << numIOs << " samples from trainset: ";
+	if (numIOs > 0)
+		std::cout << "Reading " << numIOs << " samples from trainset: ";
+	else
+		std::cout << "Reading all samples from trainset: ";
+
 	auto readstart = std::chrono::high_resolution_clock::now();
 #ifndef RAND_EXPLICIT
 	totalSamples = readTrainSet(trainstring, begin, numIOs);
@@ -198,7 +221,11 @@ size_t readData(size_t begin, size_t numIOs) {
 	auto readelapsed = std::chrono::high_resolution_clock::now() - readstart;
 	long long readtime = std::chrono::duration_cast<std::chrono::microseconds>(readelapsed).count();
 	std::cout << readtime / 1000000 << " s" << std::endl;
-	size_t numSamples = min(numIOs, totalSamples);
+	size_t numSamples;
+	if (numIOs > 0)
+		numSamples = min(numIOs, totalSamples);
+	else
+		numSamples = totalSamples;
 	std::cout << numSamples << "/" << totalSamples << " samples loaded" << std::endl;
 	return numSamples;
 }
@@ -227,6 +254,8 @@ void loadLocalParameters() {
 			lss >> trainIncreaseThreshold;
 		else if (var == "backupInterval")
 			lss >> backupInterval;
+		else if (var == "randomizeSubsetOnThreshold")
+			lss >> randomizeSubsetOnThreshold;
 	}
 }
 

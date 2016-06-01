@@ -1,8 +1,6 @@
 #include <stockrun.cuh>
 #include "Shlwapi.h"
 
-#define LOCAL
-
 #ifdef LOCAL
 #define datastring "rawdata/"
 #define savestring "saveweights/"
@@ -11,13 +9,16 @@
 #define savestring "../stockproj/saveweights/"
 #endif
 
-//#define RAND_EXPLICIT
+bool testExplicitFile = false;
 size_t testBegin = 1;
 size_t testNumIOs = 0;
 
 bool testUseSampleFile = false;
 bool discardSamples = false;
 std::string testOutputFile = "testoutput";
+std::string testfile = "trainset";
+
+bool testPrintSampleAll = false;
 
 size_t readData(size_t begin, size_t numIOs);
 void loadLocalParameters(std::string parName);
@@ -25,8 +26,8 @@ void loadLocalParameters(std::string parName);
 int main() {
 	srand((size_t)time(NULL));
 #ifdef LOCAL
-	loadParameters("pars.cfg");
 	loadLocalParameters("pars.cfg");
+	loadParameters("pars.cfg");
 #else
 	loadLocalParameters("../stockproj/pars.cfg");
 	loadParameters("../stockproj/pars.cfg");
@@ -40,9 +41,9 @@ int main() {
 	readData(testBegin, testNumIOs);
 
 	if (testUseSampleFile)
-		sampleTestSim(layers, testOutputFile);
+		sampleTestSim(layers, testOutputFile, testPrintSampleAll);
 	else
-		runSim(layers, false, 0, true);
+		runSim(layers, false, 0, 0, true);
 
 #ifdef LOCAL
 	system("pause");
@@ -52,25 +53,35 @@ int main() {
 size_t readData(size_t begin, size_t numIOs) {
 	size_t numSamples;
 	if (!testUseSampleFile) {
-		std::cout << "Reading " << numIOs << " samples from trainset: ";
+		if (numIOs > 0)
+			std::cout << "Reading " << numIOs << " samples from trainset: ";
+		else
+			std::cout << "Reading all samples from trainset: ";
+
 		auto readstart = std::chrono::high_resolution_clock::now();
-#ifndef RAND_EXPLICIT
-		size_t totalSamples = readTrainSet(trainstring, begin, numIOs);
-#else
-		size_t totalSamples = readExplicitTrainSet(randtrainstring, begin, numIOs);
-#endif
+		size_t totalSamples;
+		if (!testExplicitFile)
+			totalSamples = readTrainSet(testfile, begin, numIOs);
+		else
+			totalSamples = readExplicitTrainSet(testfile, begin, numIOs);
+
 		auto readelapsed = std::chrono::high_resolution_clock::now() - readstart;
 		long long readtime = std::chrono::duration_cast<std::chrono::microseconds>(readelapsed).count();
 		std::cout << readtime / 1000000 << " s" << std::endl;
-		numSamples = min(numIOs, totalSamples);
+		size_t numSamples;
+		if (numIOs > 0)
+			numSamples = min(numIOs, totalSamples);
+		else
+			numSamples = totalSamples;
 		std::cout << numSamples << "/" << totalSamples << " samples loaded" << std::endl;
+		return numSamples;
 	}
 	else {
 		std::cout << "Reading trainset: ";
 		auto readstart = std::chrono::high_resolution_clock::now();
 		size_t numDiscards[2];
 
-		sampleReadTrainSet(trainstring, discardSamples, numDiscards);
+		sampleReadTrainSet(testfile, discardSamples, numDiscards);
 
 		auto readelapsed = std::chrono::high_resolution_clock::now() - readstart;
 		long long readtime = std::chrono::duration_cast<std::chrono::microseconds>(readelapsed).count();
@@ -100,5 +111,11 @@ void loadLocalParameters(std::string parName) {
 			lss >> discardSamples;
 		else if (var == "testOutputFile")
 			lss >> testOutputFile;
+		else if (var == "testExplicitFile")
+			lss >> testExplicitFile;
+		else if (var == "testfile")
+			lss >> testfile;
+		else if (var == "testPrintSampleAll")
+			lss >> testPrintSampleAll;
 	}
 }

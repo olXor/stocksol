@@ -12,6 +12,7 @@ float OUTPUT_DIVISOR = 1.0f;
 std::string savename = "weights";
 std::string trainstring = "trainset";
 std::string randtrainstring = "rantrainset";
+bool tradeTypeLong = true;
 
 void setStrings(std::string data, std::string save) {
 	datastring = data;
@@ -43,7 +44,7 @@ size_t readTrainSet(std::string learnsetname, size_t begin, size_t numIOs) {
 				continue;
 			IOPair io;
 			io.inputs.resize(NUM_INPUTS);
-			if (TRADE_TYPE == TRADE_TYPE_LONG)
+			if (tradeTypeLong)
 				io.correctoutput = longprof/OUTPUT_DIVISOR;
 			else
 				io.correctoutput = shortprof/OUTPUT_DIVISOR;
@@ -74,7 +75,7 @@ size_t readTrainSet(std::string learnsetname, size_t begin, size_t numIOs) {
 	return ionum;
 }
 
-float runSim(LayerCollection layers, bool train, float customStepFactor, bool print) {
+float runSim(LayerCollection layers, bool train, float customStepFactor, size_t samples, bool print) {
 	float* d_inputs;
 	if (layers.numConvolutions > 0) {
 		if (layers.convPars[0].numInputLocs != NUM_INPUTS || layers.convPars[0].numInputNeurons != 1)
@@ -104,9 +105,15 @@ float runSim(LayerCollection layers, bool train, float customStepFactor, bool pr
 	cudaEvent_t calcDone;
 	checkCudaErrors(cudaEventCreate(&calcDone));
 
+	size_t trainSamplesNum;
+	if (samples > 0 && samples < trainset.size())
+		trainSamplesNum = samples;
+	else
+		trainSamplesNum = trainset.size();
+		
 	float error = 0;
 	size_t numerrors = 0;
-	for (size_t i = 0; i < trainset.size(); i++) {
+	for (size_t i = 0; i < trainSamplesNum; i++) {
 		numerrors++;
 
 		//----calculate----
@@ -911,9 +918,11 @@ float testSim(LayerCollection layers, std::string ofname) {
 	return error;
 }
 
-void randomizeTrainSet() {
-	for (size_t i = 0; i < trainset.size(); i++) {
-		size_t j = rand() % trainset.size();
+void randomizeTrainSet(size_t maxIndex) {
+	if (maxIndex == 0 || maxIndex > trainset.size())
+		maxIndex = trainset.size();
+	for (size_t i = 0; i < maxIndex; i++) {
+		size_t j = rand() % maxIndex;
 		IOPair tmpio = trainset[i];
 		trainset[i] = trainset[j];
 		trainset[j] = tmpio;
@@ -984,10 +993,12 @@ void loadParameters(std::string parName) {
 			lss >> trainstring;
 		else if (var == "randtrainstring")
 			lss >> randtrainstring;
+		else if (var == "tradeTypeLong")
+			lss >> tradeTypeLong;
 	}
 }
 
-float sampleTestSim(LayerCollection layers, std::string ofname) {
+float sampleTestSim(LayerCollection layers, std::string ofname, bool testPrintSampleAll) {
 	float* d_inputs;
 	if (layers.numConvolutions > 0) {
 		if (layers.convPars[0].numInputLocs != NUM_INPUTS || layers.convPars[0].numInputNeurons != 1)
@@ -1031,9 +1042,21 @@ float sampleTestSim(LayerCollection layers, std::string ofname) {
 			float origmean = mean(sampleoutputs);
 			float origdev = stdev(sampleoutputs, origmean);
 			for (size_t j = 0; j < sampleoutputs.size(); j++) {
+				if (testPrintSampleAll) {
+					std::cout << "   Sample " << currentSample << "| Actual: " << trainset[i].correctoutput << " Measured: " << sampleoutputs[j] << " Error: " << sampleoutputs[j] - trainset[i].correctoutput;
+					outfile << "   Sample " << currentSample << "| Actual: " << trainset[i].correctoutput << " Measured: " << sampleoutputs[j] << " Error: " << sampleoutputs[j] - trainset[i].correctoutput;
+				}
 				if (fabs(sampleoutputs[j] - origmean) > origdev) {
 					sampleoutputs.erase(sampleoutputs.begin() + j);
 					j--;
+					if (testPrintSampleAll) {
+						std::cout << " DISCARDED";
+						outfile << " DISCARDED";
+					}
+				}
+				if (testPrintSampleAll) {
+					std::cout << std::endl;
+					outfile << std::endl;
 				}
 			}
 			float newmean = mean(sampleoutputs);
@@ -1168,4 +1191,29 @@ void sampleReadTrainSet(std::string learnsetname, bool discard, size_t* numDisca
 		}
 		samplenum++;
 	}
+}
+
+float calculateSingleOutput(LayerCollection layers, std::vector<float> inputs) {
+	float* d_inputs;
+	if (layers.numConvolutions > 0) {
+		if (layers.convPars[0].numInputLocs != NUM_INPUTS || layers.convPars[0].numInputNeurons != 1)
+			throw std::runtime_error("inputs to first layer don't match data set");
+		d_inputs = layers.convMat[0].inlayer;
+	}
+	else if (layers.numFixedNets > 0) {
+		if (layers.fixedPars[0].numInputNeurons != NUM_INPUTS)
+			throw std::runtime_error("inputs to first layer don't match data set");
+		d_inputs = layers.fixedMat[0].inlayer;
+	}
+	else
+		throw std::runtime_error("tried to run on a network with no convolutions and no fixed networks");
+
+	checkCudaErrors(cudaMemcpyAsync(d_inputs, &inputs[0], NUM_INPUTS*sizeof(float), cudaMemcpyHostToDevice));
+
+	calculate(layers);
+
+	float output[1];
+	checkCudaErrors(cudaMemcpy(output, layers.fixedMat[layers.numFixedNets - 1].outlayer, sizeof(float), cudaMemcpyDeviceToHost));
+
+	return OUTPUT_DIVISOR*output[0];
 }

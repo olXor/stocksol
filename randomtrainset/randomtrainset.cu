@@ -1,6 +1,5 @@
 #include "stockrun.cuh"
 
-#define LOCAL
 
 #ifdef LOCAL
 #define datastring "rawdata/"

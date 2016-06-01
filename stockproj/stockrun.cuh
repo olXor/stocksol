@@ -47,7 +47,7 @@ struct LayerCollection {
 void setStrings(std::string data, std::string save);
 void freeMemory();
 size_t readTrainSet(std::string learnsetname, size_t begin = 1, size_t numIOs = 0);
-float runSim(LayerCollection layers, bool train, float customStepFactor, bool print = false);
+float runSim(LayerCollection layers, bool train, float customStepFactor, size_t samples = 0, bool print = false);
 float testSim(LayerCollection layers, std::string ofname = "");
 void saveWeights(LayerCollection layers, std::string fname);
 void loadWeights(LayerCollection layers, std::string fname);
@@ -63,10 +63,11 @@ void backPropagate(LayerCollection layers, cudaStream_t stream = 0);
 #ifdef BATCH_MODE
 void batchUpdate(LayerCollection layers);
 #endif
+float calculateSingleOutput(LayerCollection layers, std::vector<float> inputs);
 
 LayerCollection createLayerCollection();
 
-void randomizeTrainSet();
+void randomizeTrainSet(size_t maxIndex = 0);
 
 size_t readExplicitTrainSet(std::string learnsetname, size_t begin, size_t numIOs);
 void saveExplicitTrainSet(std::string learnsetname);
@@ -74,6 +75,6 @@ void saveExplicitTrainSet(std::string learnsetname);
 void loadParameters(std::string parName);
 
 void sampleReadTrainSet(std::string learnsetname, bool discard, size_t* numDiscards);
-float sampleTestSim(LayerCollection layers, std::string ofname);
+float sampleTestSim(LayerCollection layers, std::string ofname, bool testPrintSampleAll = false);
 
 #endif

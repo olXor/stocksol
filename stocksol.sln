@@ -9,6 +9,8 @@ Project("{8BC9CEB8-8B4A-11D0-8D11-00A0C91BC942}") = "stocktest", "stocktest\stoc
 EndProject
 Project("{8BC9CEB8-8B4A-11D0-8D11-00A0C91BC942}") = "randomtrainset", "randomtrainset\randomtrainset.vcxproj", "{68007016-5F54-4E7C-901A-F9A90E2BCE1B}"
 EndProject
+Project("{8BC9CEB8-8B4A-11D0-8D11-00A0C91BC942}") = "mt4test", "mt4test\mt4test.vcxproj", "{4275EDFC-9CBC-467E-9835-EF06A1449965}"
+EndProject
 Global
 	GlobalSection(SolutionConfigurationPlatforms) = preSolution
 		Debug|Win32 = Debug|Win32
@@ -41,6 +43,14 @@ Global
 		{68007016-5F54-4E7C-901A-F9A90E2BCE1B}.Release|Win32.Build.0 = Release|Win32
 		{68007016-5F54-4E7C-901A-F9A90E2BCE1B}.Release|x64.ActiveCfg = Release|x64
 		{68007016-5F54-4E7C-901A-F9A90E2BCE1B}.Release|x64.Build.0 = Release|x64
+		{4275EDFC-9CBC-467E-9835-EF06A1449965}.Debug|Win32.ActiveCfg = Debug|Win32
+		{4275EDFC-9CBC-467E-9835-EF06A1449965}.Debug|Win32.Build.0 = Debug|Win32
+		{4275EDFC-9CBC-467E-9835-EF06A1449965}.Debug|x64.ActiveCfg = Debug|x64
+		{4275EDFC-9CBC-467E-9835-EF06A1449965}.Debug|x64.Build.0 = Debug|x64
+		{4275EDFC-9CBC-467E-9835-EF06A1449965}.Release|Win32.ActiveCfg = Release|Win32
+		{4275EDFC-9CBC-467E-9835-EF06A1449965}.Release|Win32.Build.0 = Release|Win32
+		{4275EDFC-9CBC-467E-9835-EF06A1449965}.Release|x64.ActiveCfg = Release|x64
+		{4275EDFC-9CBC-467E-9835-EF06A1449965}.Release|x64.Build.0 = Release|x64
 	EndGlobalSection
 	GlobalSection(SolutionProperties) = preSolution
 		HideSolutionNode = FALSE

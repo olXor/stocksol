@@ -16,13 +16,11 @@ extern size_t NUM_INPUTS;
 
 #define STEPFACTOR 1e-4f
 
+//#define LOCAL
+
 extern float INITIAL_OUTPUT_AVERAGE;
 
-#define TRADE_TYPE_LONG 1
-#define TRADE_TYPE_SHORT 0
-
-#define TRADE_TYPE 	TRADE_TYPE_LONG
-
+extern bool tradeTypeLong;
 
 extern float OUTPUT_DIVISOR;
 
