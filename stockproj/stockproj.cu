@@ -34,7 +34,10 @@ size_t numRunSetStart;
 
 float stepMult;
 
+bool randomizeTrainSetEveryRun = true;
 bool randomizeSubsetOnThreshold = false;
+
+bool pairedTraining = false;
 
 #define ERRORS_SAVED 5
 std::list<float> lastErrors;
@@ -84,9 +87,17 @@ int main() {
 
 	loadSimVariables();
 
-	LayerCollection layers = createLayerCollection();
-	initializeLayers(&layers);
-	loadWeights(layers, savename);
+	LayerCollection layers;
+	PairedConvCollection pairedLayers;
+	if (pairedTraining) {
+		pairedLayers = createAndInitializePairedConvCollection(NUM_INPUTS);
+		loadPairedWeights(pairedLayers, savename);
+	}
+	else {
+		layers = createLayerCollection();
+		initializeLayers(&layers);
+		loadWeights(layers, savename);
+	}
 
 	size_t numSamples;
 	if (randomizeSubsetOnThreshold) {
@@ -101,7 +112,11 @@ int main() {
 	std::cout << "Calculating initial error: ";
 	auto initstart = std::chrono::high_resolution_clock::now();
 
-	float initError = runSim(layers, false, 0, trainSamples);
+	float initError;
+	if (pairedTraining)
+		initError = runPairedSim(pairedLayers, false, 0, trainSamples);
+	else
+		initError = runSim(layers, false, 0, trainSamples);
 
 	auto initelapsed = std::chrono::high_resolution_clock::now() - initstart;
 	long long inittime = std::chrono::duration_cast<std::chrono::microseconds>(initelapsed).count();
@@ -110,28 +125,47 @@ int main() {
 	updateLastErrors(initError);
 
 	while (true) {
-		std::cout << nIter << "+1 runs on " << numSamples << " samples: ";
+		if (pairedTraining)
+			std::cout << nIter << "+1 runs on " << numSamples << " sample pairs: ";
+		else
+			std::cout << nIter << "+1 runs on " << numSamples << " samples: ";
 		auto gpustart = std::chrono::high_resolution_clock::now();
 
 		if (randomizeSubsetOnThreshold) {
 			randomizeTrainSet(trainSamples);
 		}
-		else
+		else if (randomizeTrainSetEveryRun)
 			randomizeTrainSet();
 
 		for (size_t i = 0; i < nIter; i++) {
-			runSim(layers, true, stepMultiplier(numRuns), trainSamples);
+			if (pairedTraining)
+				runPairedSim(pairedLayers, true, stepMultiplier(numRuns), trainSamples);
+			else
+				runSim(layers, true, stepMultiplier(numRuns), trainSamples);
 #ifdef BATCH_MODE
-			batchUpdate(layers);
+			if (pairedTraining) {
+				batchUpdate(pairedLayers.conv1);
+				batchUpdate(pairedLayers.conv2);
+				batchUpdate(pairedLayers.fixed);
+			}
+			else
+				batchUpdate(layers);
 #endif
 		}
 
-		float afterError = runSim(layers, false, 0, trainSamples);
+		float afterError;
+		if (pairedTraining)
+			afterError = runPairedSim(pairedLayers, false, 0, trainSamples);
+		else
+			afterError = runSim(layers, false, 0, trainSamples);
 		updateLastErrors(afterError);
 
 		auto gpuelapsed = std::chrono::high_resolution_clock::now() - gpustart;
 		long long gputime = std::chrono::duration_cast<std::chrono::microseconds>(gpuelapsed).count();
-		saveWeights(layers, savename);
+		if (pairedTraining)
+			savePairedWeights(pairedLayers, savename);
+		else
+			saveWeights(layers, savename);
 		numRuns += nIter;
 		std::cout << gputime/1000000 << " s, Error: " << afterError << std::endl;
 
@@ -149,14 +183,14 @@ int main() {
 			stepMult = max(stepMultDecFactor*stepMult, minimumStepMult);
 		}
 
+		saveResults(numRuns, afterError);
+		saveSimVariables();
+
 		if (backupInterval > 0 && (numRuns - numRunSetStart) % backupInterval == 0) {
 			std::stringstream bss;
 			bss << savename << numSamples << "-" << numRuns - numRunSetStart;
 			backupFiles(bss.str().c_str());
 		}
-
-		saveResults(numRuns, afterError);
-		saveSimVariables();
 	}
 }
 
@@ -256,6 +290,10 @@ void loadLocalParameters() {
 			lss >> backupInterval;
 		else if (var == "randomizeSubsetOnThreshold")
 			lss >> randomizeSubsetOnThreshold;
+		else if (var == "randomizeTrainSetEveryRun")
+			lss >> randomizeTrainSetEveryRun;
+		else if (var == "pairedTraining")
+			lss >> pairedTraining;
 	}
 }
 
@@ -273,6 +311,28 @@ void backupFiles(std::string backname) {
 	nss << bss.str();
 
 	CopyFile(pss.str().c_str(), nss.str().c_str(), false);
+
+	if(pairedTraining) {
+		pss.clear();
+		pss.str("");
+		nss.clear();
+		nss.str("");
+
+		pss << oss.str() << "conv";
+		nss << bss.str() << "conv";
+
+		CopyFile(pss.str().c_str(), nss.str().c_str(), false);
+
+		pss.clear();
+		pss.str("");
+		nss.clear();
+		nss.str("");
+
+		pss << oss.str() << "fixed";
+		nss << bss.str() << "fixed";
+
+		CopyFile(pss.str().c_str(), nss.str().c_str(), false);
+	}
 
 	pss.clear();
 	pss.str("");

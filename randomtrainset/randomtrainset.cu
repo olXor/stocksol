@@ -12,6 +12,8 @@
 bool testUseSampleFile = false;
 bool discardSamples = false;
 
+bool createRandomizedExplicitTrainSetFile = true;
+
 void loadLocalParameters(std::string parName);
 
 int main() {
@@ -53,7 +55,8 @@ int main() {
 
 	std::cout << numSamples << " samples read" << std::endl;
 
-	randomizeTrainSet();
+	if (createRandomizedExplicitTrainSetFile)
+		randomizeTrainSet();
 
 	saveExplicitTrainSet(randtrainstring);
 
@@ -73,5 +76,7 @@ void loadLocalParameters(std::string parName) {
 			lss >> testUseSampleFile;
 		else if (var == "discardSamples")
 			lss >> discardSamples;
+		else if (var == "createRandomizedExplicitTrainSetFile")
+			lss >> createRandomizedExplicitTrainSetFile;
 	}
 }

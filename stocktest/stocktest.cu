@@ -20,6 +20,16 @@ std::string testfile = "trainset";
 
 bool testPrintSampleAll = false;
 
+bool pairedTraining = false;
+size_t testPairsAveraged = 0;
+
+bool testBackups = false;
+size_t backupStartRound = 0;
+size_t backupInterval = 100;
+size_t testBackupSampleSize = 2;
+
+bool testPrint = true;
+
 size_t readData(size_t begin, size_t numIOs);
 void loadLocalParameters(std::string parName);
 
@@ -34,16 +44,61 @@ int main() {
 #endif
 	setStrings(datastring, savestring);
 
-	LayerCollection layers = createLayerCollection();
-	initializeLayers(&layers);
-	loadWeights(layers, savename);
-
 	readData(testBegin, testNumIOs);
 
-	if (testUseSampleFile)
-		sampleTestSim(layers, testOutputFile, testPrintSampleAll);
-	else
-		runSim(layers, false, 0, 0, true);
+	std::string basename;
+	size_t backupNum = backupStartRound;
+	if (testBackups) {
+		basename = savename;
+	}
+
+	float error;
+	do {
+		if (testBackups) {
+			std::stringstream savess;
+			savess << "backup/" << basename << testBackupSampleSize << "-" << backupNum;
+			savename = savess.str();
+		}
+		LayerCollection layers;
+		PairedConvCollection pairedLayers;
+		if (pairedTraining) {
+			pairedLayers = createAndInitializePairedConvCollection(NUM_INPUTS);
+			loadPairedWeights(pairedLayers, savename);
+		}
+		else {
+			layers = createLayerCollection();
+			initializeLayers(&layers);
+			loadWeights(layers, savename);
+		}
+
+		std::cout << "Starting test: " << std::endl;
+		auto teststart = std::chrono::high_resolution_clock::now();
+		if (pairedTraining) {
+			if (testUseSampleFile) {
+				std::cout << "Can't test with sample file when using paired training" << std::endl;
+				throw std::runtime_error("Can't test with sample file when using paired training");
+			}
+			else
+				error = runPairedSim(pairedLayers, false, 0, 0, testPrint, testPairsAveraged);
+		}
+		else {
+			if (testUseSampleFile)
+				error = sampleTestSim(layers, testOutputFile, testPrintSampleAll);
+			else
+				error = runSim(layers, false, 0, 0, testPrint);
+		}
+
+		auto testelapsed = std::chrono::high_resolution_clock::now() - teststart;
+		long long testtime = std::chrono::duration_cast<std::chrono::microseconds>(testelapsed).count();
+		std::cout << "Test took " << testtime / 1000000 << " s" << std::endl;
+
+		if (testBackups) {
+			std::cout << "Round " << backupNum << " error: " << error << std::endl;
+			backupNum += backupInterval;
+		}
+		else
+			std::cout << "Error " << error << std::endl;
+	} while (testBackups);
 
 #ifdef LOCAL
 	system("pause");
@@ -117,5 +172,19 @@ void loadLocalParameters(std::string parName) {
 			lss >> testfile;
 		else if (var == "testPrintSampleAll")
 			lss >> testPrintSampleAll;
+		else if (var == "pairedTraining")
+			lss >> pairedTraining;
+		else if (var == "testPairsAveraged")
+			lss >> testPairsAveraged;
+		else if (var == "testBackups")
+			lss >> testBackups;
+		else if (var == "backupStartRound")
+			lss >> backupStartRound;
+		else if (var == "backupInterval")
+			lss >> backupInterval;
+		else if (var == "testPrint")
+			lss >> testPrint;
+		else if (var == "testBackupSampleSize")
+			lss >> testBackupSampleSize;
 	}
 }

@@ -28,4 +28,6 @@ extern std::string savename;
 extern std::string trainstring;
 extern std::string randtrainstring;
 
+extern size_t pairProximity;
+
 #endif
