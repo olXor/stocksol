@@ -74,7 +74,7 @@ int main() {
 			}
 		}
 		else {
-			layers = createLayerCollection();
+			layers = createLayerCollection(0, getLCType());
 			initializeLayers(&layers);
 			if (!loadWeights(layers, savename)) {
 #ifdef LOCAL

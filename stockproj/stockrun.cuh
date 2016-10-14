@@ -65,6 +65,8 @@ bool loadWeights(LayerCollection layers, std::string fname);
 bool loadPairedWeights(PairedConvCollection layers, std::string savename);
 void savePairedWeights(PairedConvCollection layers, std::string savename);
 
+int getLCType();
+
 void initializeLayers(LayerCollection* layers);
 void initializeConvolutionMatrices(ConvolutionMatrices* mat, ConvolutionParameters* pars);
 void initializeMPMatrices(MaxPoolMatrices* mat, MaxPoolParameters* pars);

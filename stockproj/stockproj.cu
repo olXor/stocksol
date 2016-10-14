@@ -67,6 +67,7 @@ void updateLastErrors(float error) {
 		lastErrors.pop_front();
 }
 
+
 int main() {
 	srand((size_t)time(NULL));
 
@@ -94,7 +95,7 @@ int main() {
 		loadPairedWeights(pairedLayers, savename);
 	}
 	else {
-		layers = createLayerCollection();
+		layers = createLayerCollection(0, getLCType());
 		initializeLayers(&layers);
 		loadWeights(layers, savename);
 	}

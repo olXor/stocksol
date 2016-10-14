@@ -16,6 +16,9 @@ bool tradeTypeLong = true;
 size_t pairProximity = NUM_INPUTS*30;
 size_t pairProximityMin = NUM_INPUTS;
 
+bool convolutionsOn = true;
+bool fixedNetOn = true;
+
 void setStrings(std::string data, std::string save) {
 	datastring = data;
 	savestring = save;
@@ -937,7 +940,7 @@ LayerCollection createLayerCollection(size_t numInputs, int LCType) {
 	else if (LCType == FIXED_ONLY) {
 		FixedNetParameters fix1;
 		fix1.numInputNeurons = numInputs;
-		fix1.numOutputNeurons = numInputs;
+		fix1.numOutputNeurons = 2*numInputs;
 
 		fix1.forBlockX = fix1.numInputNeurons;
 		fix1.forBlockY = 1;
@@ -953,7 +956,7 @@ LayerCollection createLayerCollection(size_t numInputs, int LCType) {
 		layers.fixedPars.push_back(fix1);
 
 		FixedNetParameters fix2;
-		fix2.numInputNeurons = numInputs;
+		fix2.numInputNeurons = 2*numInputs;
 		fix2.numOutputNeurons = 1;
 
 		fix2.forBlockX = fix2.numInputNeurons;
@@ -1218,6 +1221,10 @@ void loadParameters(std::string parName) {
 			lss >> pairProximity;
 		else if (var == "pairProximityMin")
 			lss >> pairProximityMin;
+		else if (var == "convolutionsOn")
+			lss >> convolutionsOn;
+		else if (var == "fixedNetOn")
+			lss >> fixedNetOn;
 	}
 }
 
@@ -1557,4 +1564,17 @@ void savePairedWeights(PairedConvCollection layers, std::string savename) {
 	std::stringstream fixedname;
 	fixedname << savename << "fixed";
 	saveWeights(layers.fixed, fixedname.str());
+}
+
+int getLCType() {
+	if (convolutionsOn && fixedNetOn)
+		return FULL_NETWORK;
+	else if (!convolutionsOn && fixedNetOn)
+		return FIXED_ONLY;
+	else if (convolutionsOn && !fixedNetOn)
+		return CONV_ONLY;
+	else {
+		std::cout << "Need to have either convolutions or a fixed network (or both)!";
+		throw new std::runtime_error("Need to have either convolutions or a fixed network (or both)!");
+	}
 }
