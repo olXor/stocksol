@@ -358,13 +358,13 @@ void saveWeights(LayerCollection layers, std::string fname) {
 	}
 }
 
-void loadWeights(LayerCollection layers, std::string fname) {
+bool loadWeights(LayerCollection layers, std::string fname) {
 	std::stringstream fss;
 	fss << savestring << fname;
 
 	if (!PathFileExists(fss.str().c_str())) {
 		std::cout << "No weights file found; starting with random weights" << std::endl;
-		return;
+		return false;
 	}
 
 	std::ifstream infile(fss.str().c_str());
@@ -421,6 +421,8 @@ void loadWeights(LayerCollection layers, std::string fname) {
 		delete[] h_weights;
 		delete[] h_thresholds;
 	}
+
+	return true;
 }
 
 
@@ -1529,16 +1531,20 @@ PairedConvCollection createAndInitializePairedConvCollection(size_t numInputs) {
 	return layers;
 }
 
-void loadPairedWeights(PairedConvCollection layers, std::string savename) {
+bool loadPairedWeights(PairedConvCollection layers, std::string savename) {
 	std::stringstream convname;
 	convname << savename << "conv";
 	//loads twice, but maybe in the future we'll want to disconnect the weights of the two convolutions
-	loadWeights(layers.conv1, convname.str());
-	loadWeights(layers.conv2, convname.str());
+	if (!loadWeights(layers.conv1, convname.str()))
+		return false;
+	if (!loadWeights(layers.conv2, convname.str()))
+		return false;
 	
 	std::stringstream fixedname;
 	fixedname << savename << "fixed";
-	loadWeights(layers.fixed, fixedname.str());
+	if (!loadWeights(layers.fixed, fixedname.str()))
+		return false;
+	return true;
 }
 
 void savePairedWeights(PairedConvCollection layers, std::string savename) {

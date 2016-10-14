@@ -61,8 +61,8 @@ float runSim(LayerCollection layers, bool train, float customStepFactor, size_t 
 float runPairedSim(PairedConvCollection layers, bool train, float customStepFactor, size_t samples = 0, bool print = false, size_t pairsAveraged = 0);
 float testSim(LayerCollection layers, std::string ofname = "");
 void saveWeights(LayerCollection layers, std::string fname);
-void loadWeights(LayerCollection layers, std::string fname);
-void loadPairedWeights(PairedConvCollection layers, std::string savename);
+bool loadWeights(LayerCollection layers, std::string fname);
+bool loadPairedWeights(PairedConvCollection layers, std::string savename);
 void savePairedWeights(PairedConvCollection layers, std::string savename);
 
 void initializeLayers(LayerCollection* layers);

@@ -27,6 +27,7 @@ bool testBackups = false;
 size_t backupStartRound = 0;
 size_t backupInterval = 100;
 size_t testBackupSampleSize = 2;
+std::string testBackupHistoryLog = "backupHistoryLog";
 
 bool testPrint = true;
 
@@ -48,8 +49,10 @@ int main() {
 
 	std::string basename;
 	size_t backupNum = backupStartRound;
+	std::ofstream backupHistoryLog;
 	if (testBackups) {
 		basename = savename;
+		backupHistoryLog.open(testBackupHistoryLog);
 	}
 
 	float error;
@@ -63,12 +66,22 @@ int main() {
 		PairedConvCollection pairedLayers;
 		if (pairedTraining) {
 			pairedLayers = createAndInitializePairedConvCollection(NUM_INPUTS);
-			loadPairedWeights(pairedLayers, savename);
+			if (!loadPairedWeights(pairedLayers, savename)) {
+#ifdef LOCAL
+				system("pause");
+#endif
+				return 0;
+			}
 		}
 		else {
 			layers = createLayerCollection();
 			initializeLayers(&layers);
-			loadWeights(layers, savename);
+			if (!loadWeights(layers, savename)) {
+#ifdef LOCAL
+				system("pause");
+#endif
+				return 0;
+			}
 		}
 
 		std::cout << "Starting test: " << std::endl;
@@ -94,6 +107,7 @@ int main() {
 
 		if (testBackups) {
 			std::cout << "Round " << backupNum << " error: " << error << std::endl;
+			backupHistoryLog << backupNum << " " << error << std::endl;
 			backupNum += backupInterval;
 		}
 		else
@@ -186,5 +200,7 @@ void loadLocalParameters(std::string parName) {
 			lss >> testPrint;
 		else if (var == "testBackupSampleSize")
 			lss >> testBackupSampleSize;
+		else if (var == "testBackupHistoryLog")
+			lss >> testBackupHistoryLog;
 	}
 }
