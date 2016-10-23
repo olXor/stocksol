@@ -13,6 +13,7 @@ float stepMultDecFactor = 0.707f;
 float annealingStartError = 500.0f;
 
 size_t backupInterval = 0;
+size_t backupSampleNumStart = 0;
 
 #define datastring "rawdata/"
 #define savestring "saveweights/"
@@ -187,7 +188,7 @@ int main() {
 		saveResults(numRuns, afterError);
 		saveSimVariables();
 
-		if (backupInterval > 0 && (numRuns - numRunSetStart) % backupInterval == 0) {
+		if (trainSamples >= backupSampleNumStart && backupInterval > 0 && (numRuns - numRunSetStart) % backupInterval == 0) {
 			std::stringstream bss;
 			bss << savename << numSamples << "-" << numRuns - numRunSetStart;
 			backupFiles(bss.str().c_str());
@@ -289,6 +290,8 @@ void loadLocalParameters() {
 			lss >> trainIncreaseThreshold;
 		else if (var == "backupInterval")
 			lss >> backupInterval;
+		else if (var == "backupSampleNumStart")
+			lss >> backupSampleNumStart;
 		else if (var == "randomizeSubsetOnThreshold")
 			lss >> randomizeSubsetOnThreshold;
 		else if (var == "randomizeTrainSetEveryRun")

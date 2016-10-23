@@ -16,7 +16,7 @@ extern size_t NUM_INPUTS;
 
 #define STEPFACTOR 1e-4f
 
-//#define LOCAL
+#define LOCAL
 
 extern float INITIAL_OUTPUT_AVERAGE;
 
@@ -29,5 +29,8 @@ extern std::string trainstring;
 extern std::string randtrainstring;
 
 extern size_t pairProximity;
+
+#define BIN_POSITIVE_OUTPUT 100.0f
+#define BIN_NEGATIVE_OUTPUT 0.0f
 
 #endif

@@ -21,7 +21,7 @@
 
 struct IOPair {
 	std::vector<float> inputs;
-	float correctoutput;
+	std::vector<float> correctoutputs;
 	size_t samplenum;
 };
 
@@ -56,7 +56,7 @@ struct PairedConvCollection {
 
 void setStrings(std::string data, std::string save);
 void freeMemory();
-size_t readTrainSet(std::string learnsetname, size_t begin = 1, size_t numIOs = 0);
+size_t readTrainSet(std::string learnsetname, size_t begin = 1, size_t numIOs = 0, bool overrideBinningSwitch = false);
 float runSim(LayerCollection layers, bool train, float customStepFactor, size_t samples = 0, bool print = false);
 float runPairedSim(PairedConvCollection layers, bool train, float customStepFactor, size_t samples = 0, bool print = false, size_t pairsAveraged = 0);
 float testSim(LayerCollection layers, std::string ofname = "");
@@ -91,7 +91,9 @@ void saveExplicitTrainSet(std::string learnsetname);
 
 void loadParameters(std::string parName);
 
-void sampleReadTrainSet(std::string learnsetname, bool discard, size_t* numDiscards);
+void sampleReadTrainSet(std::string learnsetname, bool discard, size_t* numDiscards, bool overrideBinningSwitch = false);
 float sampleTestSim(LayerCollection layers, std::string ofname, bool testPrintSampleAll = false);
+
+std::vector<float> getBinnedOutput(float output);
 
 #endif

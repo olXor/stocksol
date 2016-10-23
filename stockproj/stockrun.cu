@@ -19,12 +19,18 @@ size_t pairProximityMin = NUM_INPUTS;
 bool convolutionsOn = true;
 bool fixedNetOn = true;
 
+bool binnedOutput = false;
+float binWidth = 5.0f;
+float binMin = 0.0f;
+float binMax = 200.0f;
+size_t numBins = 1;
+
 void setStrings(std::string data, std::string save) {
 	datastring = data;
 	savestring = save;
 }
 
-size_t readTrainSet(std::string learnsetname, size_t begin, size_t numIOs) {
+size_t readTrainSet(std::string learnsetname, size_t begin, size_t numIOs, bool overrideBinningSwitch) {
 	trainset.clear();
 	std::stringstream learnsetss;
 	learnsetss << datastring << learnsetname;
@@ -49,10 +55,19 @@ size_t readTrainSet(std::string learnsetname, size_t begin, size_t numIOs) {
 				continue;
 			IOPair io;
 			io.inputs.resize(NUM_INPUTS);
-			if (tradeTypeLong)
-				io.correctoutput = longprof/OUTPUT_DIVISOR;
-			else
-				io.correctoutput = shortprof/OUTPUT_DIVISOR;
+			if (binnedOutput && !overrideBinningSwitch) {
+				if (tradeTypeLong)
+					io.correctoutputs = getBinnedOutput(longprof);
+				else
+					io.correctoutputs = getBinnedOutput(shortprof);
+			}
+			else {
+				io.correctoutputs.resize(1);
+				if (tradeTypeLong)
+					io.correctoutputs[0] = longprof / OUTPUT_DIVISOR;
+				else
+					io.correctoutputs[0] = shortprof / OUTPUT_DIVISOR;
+			}
 
 			size_t n = 0;
 			for (std::list<float>::iterator it = prices.begin(); it != prices.end(); it++) {
@@ -97,10 +112,10 @@ float runSim(LayerCollection layers, bool train, float customStepFactor, size_t 
 
 	float* h_output, *d_output;
 	//checkCudaErrors(cudaSetDeviceFlags(cudaDeviceMapHost));
-	checkCudaErrors(cudaHostAlloc(&h_output, sizeof(float), cudaHostAllocMapped));
+	checkCudaErrors(cudaHostAlloc(&h_output, numBins*sizeof(float), cudaHostAllocMapped));
 	checkCudaErrors(cudaHostGetDevicePointer(&d_output, h_output, 0));
 
-	float stepfac = STEPFACTOR*customStepFactor;
+	float stepfac = STEPFACTOR*customStepFactor/numBins;
 	checkCudaErrors(cudaMemcpyAsync(layers.stepfactor, &stepfac, sizeof(float), cudaMemcpyHostToDevice));
 
 	cudaStream_t mainStream;
@@ -130,9 +145,9 @@ float runSim(LayerCollection layers, bool train, float customStepFactor, size_t 
 
 		//----end calculate-----
 
-		checkCudaErrors(cudaMemcpyAsync(layers.correctoutput, &trainset[i].correctoutput, sizeof(float), cudaMemcpyHostToDevice, mainStream));
+		checkCudaErrors(cudaMemcpyAsync(layers.correctoutput, &trainset[i].correctoutputs[0], numBins*sizeof(float), cudaMemcpyHostToDevice, mainStream));
 
-		calculateOutputError << <1, 2, 0, mainStream >> >(layers.d_fixedMat[layers.numFixedNets - 1], layers.stepfactor, layers.correctoutput, d_output);
+		calculateOutputError << <1, numBins, 0, mainStream >> >(layers.d_fixedMat[layers.numFixedNets - 1], layers.stepfactor, layers.correctoutput, d_output);
 
 		checkCudaErrors(cudaEventRecord(calcDone, mainStream));
 
@@ -142,9 +157,13 @@ float runSim(LayerCollection layers, bool train, float customStepFactor, size_t 
 
 		checkCudaErrors(cudaEventSynchronize(calcDone));
 
-		float newerror = (h_output[0] - trainset[i].correctoutput);
+		float newerror = 0;
+		for (size_t j = 0; j < numBins; j++) {
+			float unsquare = (h_output[j] - trainset[i].correctoutputs[j]);
+			newerror += unsquare*unsquare;
+		}
 		//error += newerror*newerror;
-		error += fabs(newerror);
+		error += sqrt(newerror/numBins);
 		if (print) {
 			/*
 			std::cout << "Inputs: ";
@@ -153,7 +172,19 @@ float runSim(LayerCollection layers, bool train, float customStepFactor, size_t 
 			}
 			std::cout << std::endl;
 			*/
-			std::cout << "Output: " << h_output[0]*OUTPUT_DIVISOR << ", Correct: " << trainset[i].correctoutput*OUTPUT_DIVISOR << ", Error: " << newerror << std::endl;
+			if (!binnedOutput)
+				std::cout << "Output: " << h_output[0]*OUTPUT_DIVISOR << ", Correct: " << trainset[i].correctoutputs[0]*OUTPUT_DIVISOR << ", Error: " << newerror << std::endl;
+			else {
+				std::cout << "Output: ";
+				for (size_t j = 0; j < numBins; j++) {
+					std::cout << h_output[j] << " ";
+				}
+				std::cout << "Correct: ";
+				for (size_t j = 0; j < numBins; j++) {
+					std::cout << trainset[i].correctoutputs[j] << " ";
+				}
+				std::cout << "Error: " << sqrt(newerror/numBins) << std::endl;
+			}
 		}
 	}
 
@@ -161,7 +192,10 @@ float runSim(LayerCollection layers, bool train, float customStepFactor, size_t 
 		error /= numerrors;
 		//error = sqrt(error);
 	}
-	return error*OUTPUT_DIVISOR;
+	if (binnedOutput)
+		return error;
+	else
+		return error*OUTPUT_DIVISOR;
 }
 
 float runPairedSim(PairedConvCollection layers, bool train, float customStepFactor, size_t samples, bool print, size_t pairsAveraged) {
@@ -195,7 +229,7 @@ float runPairedSim(PairedConvCollection layers, bool train, float customStepFact
 
 	float* h_output, *d_output;
 	//checkCudaErrors(cudaSetDeviceFlags(cudaDeviceMapHost));
-	checkCudaErrors(cudaHostAlloc(&h_output, sizeof(float), cudaHostAllocMapped));
+	checkCudaErrors(cudaHostAlloc(&h_output, numBins*sizeof(float), cudaHostAllocMapped));
 	checkCudaErrors(cudaHostGetDevicePointer(&d_output, h_output, 0));
 
 	float stepfac = STEPFACTOR*customStepFactor;
@@ -241,11 +275,11 @@ float runPairedSim(PairedConvCollection layers, bool train, float customStepFact
 
 			//----end calculate-----
 
-			float correctdifference = trainset[i].correctoutput - trainset[j].correctoutput;
+			float correctdifference = trainset[i].correctoutputs[0] - trainset[j].correctoutputs[0];
 
 			checkCudaErrors(cudaMemcpyAsync(layers.fixed.correctoutput, &correctdifference, sizeof(float), cudaMemcpyHostToDevice, mainStream));
 
-			calculateOutputError << <1, 2, 0, mainStream >> >(layers.fixed.d_fixedMat[layers.fixed.numFixedNets - 1], layers.fixed.stepfactor, layers.fixed.correctoutput, d_output);
+			calculateOutputError << <1, numBins, 0, mainStream >> >(layers.fixed.d_fixedMat[layers.fixed.numFixedNets - 1], layers.fixed.stepfactor, layers.fixed.correctoutput, d_output);
 
 			checkCudaErrors(cudaEventRecord(calcDone, mainStream));
 
@@ -271,11 +305,11 @@ float runPairedSim(PairedConvCollection layers, bool train, float customStepFact
 					}
 					std::cout << std::endl;
 					*/
-					std::cout << "Correct profits: " << trainset[j].correctoutput*OUTPUT_DIVISOR << ", " << trainset[i].correctoutput*OUTPUT_DIVISOR << " Difference: " << correctdifference*OUTPUT_DIVISOR << ", Output: " << h_output[0] * OUTPUT_DIVISOR << ", Error: " << newerror*OUTPUT_DIVISOR << std::endl;
+					std::cout << "Correct profits: " << trainset[j].correctoutputs[0]*OUTPUT_DIVISOR << ", " << trainset[i].correctoutputs[0]*OUTPUT_DIVISOR << " Difference: " << correctdifference*OUTPUT_DIVISOR << ", Output: " << h_output[0] * OUTPUT_DIVISOR << ", Error: " << newerror*OUTPUT_DIVISOR << std::endl;
 				}
 			}
 			else {
-				float newoutput = trainset[j].correctoutput + h_output[0];
+				float newoutput = trainset[j].correctoutputs[0] + h_output[0];
 				avgoutput += newoutput;
 				numOutputAvgs++;
 			}
@@ -287,11 +321,11 @@ float runPairedSim(PairedConvCollection layers, bool train, float customStepFact
 			else
 				continue;
 
-			float newerror = (avgoutput - trainset[i].correctoutput);
+			float newerror = (avgoutput - trainset[i].correctoutputs[0]);
 			error += fabs(newerror);
 			numerrors++;
 			if (print)
-				std::cout << "Correct profit: " << trainset[i].correctoutput*OUTPUT_DIVISOR << ", Output: " << avgoutput*OUTPUT_DIVISOR << ", Error: " << newerror*OUTPUT_DIVISOR << std::endl;
+				std::cout << "Correct profit: " << trainset[i].correctoutputs[0]*OUTPUT_DIVISOR << ", Output: " << avgoutput*OUTPUT_DIVISOR << ", Error: " << newerror*OUTPUT_DIVISOR << std::endl;
 		}
 	}
 
@@ -530,7 +564,7 @@ void initializeLayers(LayerCollection* layers){
 	copyLayersToDevice(layers);
 
 	checkCudaErrors(cudaMalloc(&layers->stepfactor, sizeof(float)));
-	checkCudaErrors(cudaMalloc(&layers->correctoutput, sizeof(float)));
+	checkCudaErrors(cudaMalloc(&layers->correctoutput, numBins*sizeof(float)));
 }
 
 void initializeConvolutionMatrices(ConvolutionMatrices* mat, ConvolutionParameters* pars) {
@@ -616,8 +650,13 @@ void initializeFixedMatrices(FixedNetMatrices* mat, FixedNetParameters* pars, bo
 		h_thresholds[i] = (rand() % 21 - 10.0f) / 10.0f / (pars->numInputNeurons);
 	}
 
-	if (last)
+	if (last && !binnedOutput)
 		h_thresholds[0] = -INITIAL_OUTPUT_AVERAGE/OUTPUT_DIVISOR;
+	if (last && binnedOutput) {
+		for (size_t i = 0; i < numThresholds; i++) {
+			h_thresholds[i] = -((BIN_NEGATIVE_OUTPUT)+(BIN_POSITIVE_OUTPUT - BIN_NEGATIVE_OUTPUT) / 2.0f);
+		}
+	}
 
 	checkCudaErrors(cudaMalloc(&mat->outThresholds, numThresholds*sizeof(float)));
 	checkCudaErrors(cudaMemcpy(mat->outThresholds, h_thresholds, numThresholds*sizeof(float), cudaMemcpyHostToDevice));
@@ -922,7 +961,7 @@ LayerCollection createLayerCollection(size_t numInputs, int LCType) {
 
 		FixedNetParameters fix2;
 		fix2.numInputNeurons = 2 * NUM_NEURONS;
-		fix2.numOutputNeurons = 1;
+		fix2.numOutputNeurons = numBins;
 
 		fix2.forBlockX = fix2.numInputNeurons;
 		fix2.forBlockY = 1;
@@ -957,7 +996,7 @@ LayerCollection createLayerCollection(size_t numInputs, int LCType) {
 
 		FixedNetParameters fix2;
 		fix2.numInputNeurons = 2*numInputs;
-		fix2.numOutputNeurons = 1;
+		fix2.numOutputNeurons = numBins;
 
 		fix2.forBlockX = fix2.numInputNeurons;
 		fix2.forBlockY = 1;
@@ -1082,7 +1121,7 @@ float testSim(LayerCollection layers, std::string ofname) {
 	else
 		throw std::runtime_error("tried to run on a network with no convolutions and no fixed networks");
 
-	float h_output[1];
+	float* h_output = new float[numBins];
 
 	float error = 0;
 	size_t numerrors = 0;
@@ -1090,6 +1129,9 @@ float testSim(LayerCollection layers, std::string ofname) {
 	if (trainset.size() > 0)
 		currentSample = trainset[0].samplenum;
 	std::vector<float> sampleoutputs;
+	float* samplebins = new float[numBins];
+	for (size_t i = 0; i < numBins; i++)
+		samplebins[i] = 0.0f;
 
 	std::ofstream outfile;
 	if(ofname != "")
@@ -1101,39 +1143,226 @@ float testSim(LayerCollection layers, std::string ofname) {
 
 		calculate(layers);
 
-		checkCudaErrors(cudaMemcpy(h_output, layers.fixedMat[layers.numFixedNets-1].outlayer, sizeof(float), cudaMemcpyDeviceToHost));
+		checkCudaErrors(cudaMemcpy(h_output, layers.fixedMat[layers.numFixedNets - 1].outlayer, numBins*sizeof(float), cudaMemcpyDeviceToHost));
 		//----end calculate-----
 
-		sampleoutputs.push_back(h_output[0]);
+		if (!binnedOutput) {
+			sampleoutputs.push_back(h_output[0]);
 
-		if (i == trainset.size() - 1 || trainset[i + 1].samplenum != currentSample) {
-			numerrors++;
-			float origmean = mean(sampleoutputs);
-			float origdev = stdev(sampleoutputs, origmean);
-			for (size_t j = 0; j < sampleoutputs.size(); j++) {
-				if (fabs(sampleoutputs[j] - origmean) > origdev) {
-					sampleoutputs.erase(sampleoutputs.begin() + j);
-					j--;
+			if (i == trainset.size() - 1 || trainset[i + 1].samplenum != currentSample) {
+				numerrors++;
+				float origmean = mean(sampleoutputs);
+				float origdev = stdev(sampleoutputs, origmean);
+				for (size_t j = 0; j < sampleoutputs.size(); j++) {
+					if (fabs(sampleoutputs[j] - origmean) > origdev) {
+						sampleoutputs.erase(sampleoutputs.begin() + j);
+						j--;
+					}
 				}
-			}
-			float newmean = mean(sampleoutputs);
-			float newstdev = stdev(sampleoutputs, newmean);
-			float correct = trainset[i].correctoutput;
-			float newerror = newmean - correct;
-			error += fabs(newerror);
+				float newmean = mean(sampleoutputs);
+				float newstdev = stdev(sampleoutputs, newmean);
+				float correct = trainset[i].correctoutputs[0];
+				float newerror = newmean - correct;
+				error += fabs(newerror);
 
-			std::cout << "Sample " << currentSample << "| Actual: " << correct << " Measured: " << newmean << " +/- " << newstdev << " Error: " << newerror << std::endl;
-			if (outfile.is_open()) {
-				outfile << currentSample << " " << correct << " " << newmean << " " << newstdev << " " << newerror << std::endl;
+				std::cout << "Sample " << currentSample << "| Actual: " << correct << " Measured: " << newmean << " +/- " << newstdev << " Error: " << newerror << std::endl;
+				if (outfile.is_open()) {
+					outfile << currentSample << " " << correct << " " << newmean << " " << newstdev << " " << newerror << std::endl;
+				}
+
+				sampleoutputs.clear();
+				if (i < trainset.size() - 1)
+					currentSample = trainset[i + 1].samplenum;
+			}
+		}
+		else {
+			for (size_t j = 0; j < numBins; j++) {
+				samplebins[j] += h_output[j];
 			}
 
-			sampleoutputs.clear();
-			if (i < trainset.size() - 1)
-				currentSample = trainset[i+1].samplenum;
+			if (i == trainset.size() - 1 || trainset[i + 1].samplenum != currentSample) {
+				numerrors++;
+
+				float maxProb = 0.0f;
+				float totalProb = 0.0f;
+				size_t bestBin = 0;
+				size_t correctBin = 0;
+
+				for (size_t j = 0; j < numBins; j++) {
+					if (samplebins[j] > maxProb) {
+						maxProb = samplebins[j];
+						bestBin = j;
+					}
+					if (samplebins[j] > 0.0f)
+						totalProb += samplebins[j];
+					if (trainset[i].correctoutputs[j] == BIN_POSITIVE_OUTPUT) {
+						correctBin = j;
+					}
+				}
+
+				std::cout << "Sample " << currentSample << "| Actual: " << binMin + correctBin*binWidth << "-" << binMin + (correctBin + 1)*binWidth << " Measured: " << binMin + bestBin*binWidth << "-" << binMin + (bestBin + 1)*binWidth << " with confidence " << maxProb / totalProb << std::endl;
+				if (outfile.is_open()) {
+					outfile << currentSample << " " << binMin + correctBin*binWidth << " " << binMin + bestBin*binWidth << " " << maxProb / totalProb << std::endl;
+				}
+
+				for (size_t j = 0; j < numBins; j++) {
+					samplebins[j] = 0.0f;
+				}
+				if (i < trainset.size() - 1)
+					currentSample = trainset[i + 1].samplenum;
+			}
 		}
 	}
 
+	delete[] h_output;
+	delete[] samplebins;
+
 	if (numerrors > 0) {
+		error /= numerrors;
+		//error = sqrt(error);
+	}
+	return error;
+}
+
+float sampleTestSim(LayerCollection layers, std::string ofname, bool testPrintSampleAll) {
+	float* d_inputs;
+	if (layers.numConvolutions > 0) {
+		if (layers.convPars[0].numInputLocs != NUM_INPUTS || layers.convPars[0].numInputNeurons != 1)
+			throw std::runtime_error("inputs to first layer don't match data set");
+		d_inputs = layers.convMat[0].inlayer;
+	}
+	else if (layers.numFixedNets > 0) {
+		if (layers.fixedPars[0].numInputNeurons != NUM_INPUTS)
+			throw std::runtime_error("inputs to first layer don't match data set");
+		d_inputs = layers.fixedMat[0].inlayer;
+	}
+	else
+		throw std::runtime_error("tried to run on a network with no convolutions and no fixed networks");
+
+	float* h_output = new float[numBins];
+
+	float error = 0;
+	size_t numerrors = 0;
+	size_t currentSample = 0;
+	if (trainset.size() > 0)
+		currentSample = trainset[0].samplenum;
+	std::vector<float> sampleoutputs;
+	float* samplebins = new float[numBins];
+	for (size_t i = 0; i < numBins; i++)
+		samplebins[i] = 0.0f;
+	size_t numCorrectlyBinned = 0;
+	size_t numIncorrectlyBinned = 0;
+
+	std::ofstream outfile;
+	if (ofname != "")
+		outfile.open(ofname);
+
+	for (size_t i = 0; i < trainset.size(); i++) {
+		//----calculate----
+		checkCudaErrors(cudaMemcpy(d_inputs, &trainset[i].inputs[0], NUM_INPUTS*sizeof(float), cudaMemcpyHostToDevice));
+
+		calculate(layers);
+
+		checkCudaErrors(cudaMemcpy(h_output, layers.fixedMat[layers.numFixedNets - 1].outlayer, numBins*sizeof(float), cudaMemcpyDeviceToHost));
+		//----end calculate-----
+
+		if (binnedOutput) {
+			for (size_t j = 0; j < numBins; j++)
+				samplebins[j] += h_output[j];
+		}
+		else {
+			sampleoutputs.push_back(h_output[0]);
+		}
+
+		if (i == trainset.size() - 1 || trainset[i + 1].samplenum != currentSample) {
+			numerrors++;
+			if (binnedOutput) {
+				float maxProb = 0.0f;
+				float totalProb = 0.0f;
+				size_t bestBin = 0;
+				size_t correctBin = 0;
+
+				for (size_t j = 0; j < numBins; j++) {
+					if (samplebins[j] > maxProb) {
+						maxProb = samplebins[j];
+						bestBin = j;
+					}
+					if (samplebins[j] > 0.0f)
+						totalProb += samplebins[j];
+					if (trainset[i].correctoutputs[j] == BIN_POSITIVE_OUTPUT) {
+						correctBin = j;
+					}
+				}
+
+				std::cout << "Sample " << currentSample << "| Actual: " << binMin + correctBin*binWidth << "-" << binMin + (correctBin + 1)*binWidth << " Measured: " << binMin + bestBin*binWidth << "-" << binMin + (bestBin + 1)*binWidth << " with confidence " << maxProb / totalProb;
+				if (correctBin == bestBin) {
+					std::cout << " CORRECT" << std::endl;
+					numCorrectlyBinned++;
+				}
+				else {
+					std::cout << " INCORRECT" << std::endl;
+					numIncorrectlyBinned++;
+					if (correctBin > bestBin)
+						error += binWidth*(correctBin - bestBin);
+					else
+						error += binWidth*(bestBin - correctBin);
+				}
+				if (outfile.is_open()) {
+					outfile << currentSample << " " << binMin + correctBin*binWidth << " " << binMin + bestBin*binWidth << " " << maxProb / totalProb << std::endl;
+				}
+
+				for (size_t j = 0; j < numBins; j++) {
+					samplebins[j] = 0.0f;
+				}
+				if (i < trainset.size() - 1)
+					currentSample = trainset[i + 1].samplenum;
+			}
+			else {
+				float origmean = mean(sampleoutputs);
+				float origdev = stdev(sampleoutputs, origmean);
+				for (size_t j = 0; j < sampleoutputs.size(); j++) {
+					if (testPrintSampleAll) {
+						std::cout << "   Sample " << currentSample << "| Actual: " << trainset[i].correctoutputs[0] << " Measured: " << sampleoutputs[j] << " Error: " << sampleoutputs[j] - trainset[i].correctoutputs[0];
+						outfile << "   Sample " << currentSample << "| Actual: " << trainset[i].correctoutputs[0] << " Measured: " << sampleoutputs[j] << " Error: " << sampleoutputs[j] - trainset[i].correctoutputs[0];
+					}
+					if (fabs(sampleoutputs[j] - origmean) > origdev) {
+						sampleoutputs.erase(sampleoutputs.begin() + j);
+						j--;
+						if (testPrintSampleAll) {
+							std::cout << " DISCARDED";
+							outfile << " DISCARDED";
+						}
+					}
+					if (testPrintSampleAll) {
+						std::cout << std::endl;
+						outfile << std::endl;
+					}
+				}
+				float newmean = mean(sampleoutputs);
+				float newstdev = stdev(sampleoutputs, newmean);
+				float correct = trainset[i].correctoutputs[0];
+				float newerror = newmean - correct;
+				error += fabs(newerror);
+
+				std::cout << "Sample " << currentSample << "| Actual: " << correct << " Measured: " << newmean << " +/- " << newstdev << " Error: " << newerror << std::endl;
+				if (outfile.is_open()) {
+					outfile << currentSample << " " << correct << " " << newmean << " " << newstdev << " " << newerror << std::endl;
+				}
+
+				sampleoutputs.clear();
+			}
+			if (i < trainset.size() - 1)
+				currentSample = trainset[i + 1].samplenum;
+		}
+	}
+
+	delete[] h_output;
+	delete[] samplebins;
+
+	if (numerrors > 0) {
+		if (binnedOutput) {
+			std::cout << "Correctly Binned: " << numCorrectlyBinned << "/" << numCorrectlyBinned + numIncorrectlyBinned << "(" << 1.0f*numCorrectlyBinned / (numCorrectlyBinned + numIncorrectlyBinned) << ")" << std::endl;
+		}
 		error /= numerrors;
 		//error = sqrt(error);
 	}
@@ -1157,7 +1386,7 @@ void saveExplicitTrainSet(std::string learnsetname) {
 	std::ofstream outfile(learnsetss.str().c_str());
 
 	for (size_t i = 0; i < trainset.size(); i++) {
-		outfile << trainset[i].correctoutput*OUTPUT_DIVISOR << " | ";
+		outfile << trainset[i].correctoutputs[0]*OUTPUT_DIVISOR << " | ";
 		for (size_t j = 0; j < trainset[i].inputs.size(); j++) {
 			outfile << trainset[i].inputs[j] << " ";
 		}
@@ -1184,8 +1413,16 @@ size_t readExplicitTrainSet(std::string learnsetname, size_t begin, size_t numIO
 		io.inputs.resize(NUM_INPUTS);
 		std::stringstream lss(line);
 		if (lss.eof()) throw std::runtime_error("Invalid train set file!");
-		lss >> io.correctoutput;
-		io.correctoutput /= OUTPUT_DIVISOR;
+		if (binnedOutput) {
+			float correctoutput;
+			lss >> correctoutput;
+			io.correctoutputs = getBinnedOutput(correctoutput);
+		}
+		else {
+			io.correctoutputs.resize(1);
+			lss >> io.correctoutputs[0];
+			io.correctoutputs[0] /= OUTPUT_DIVISOR;
+		}
 		lss >> dum;		//"|"
 		for (size_t i = 0; i < NUM_INPUTS; i++) {
 			if (lss.eof()) throw std::runtime_error("Invalid train set file!");
@@ -1225,93 +1462,22 @@ void loadParameters(std::string parName) {
 			lss >> convolutionsOn;
 		else if (var == "fixedNetOn")
 			lss >> fixedNetOn;
+		else if (var == "binnedOutput")
+			lss >> binnedOutput;
+		else if (var == "binMin")
+			lss >> binMin;
+		else if (var == "binMax")
+			lss >> binMax;
+		else if (var == "binWidth")
+			lss >> binWidth;
 	}
-}
 
-float sampleTestSim(LayerCollection layers, std::string ofname, bool testPrintSampleAll) {
-	float* d_inputs;
-	if (layers.numConvolutions > 0) {
-		if (layers.convPars[0].numInputLocs != NUM_INPUTS || layers.convPars[0].numInputNeurons != 1)
-			throw std::runtime_error("inputs to first layer don't match data set");
-		d_inputs = layers.convMat[0].inlayer;
-	}
-	else if (layers.numFixedNets > 0) {
-		if (layers.fixedPars[0].numInputNeurons != NUM_INPUTS)
-			throw std::runtime_error("inputs to first layer don't match data set");
-		d_inputs = layers.fixedMat[0].inlayer;
-	}
+	if (binnedOutput)
+		numBins = (size_t)((binMax - binMin) / binWidth + 1);
 	else
-		throw std::runtime_error("tried to run on a network with no convolutions and no fixed networks");
-
-	float h_output[1];
-
-	float error = 0;
-	size_t numerrors = 0;
-	size_t currentSample = 0;
-	if (trainset.size() > 0)
-		currentSample = trainset[0].samplenum;
-	std::vector<float> sampleoutputs;
-
-	std::ofstream outfile;
-	if (ofname != "")
-		outfile.open(ofname);
-
-	for (size_t i = 0; i < trainset.size(); i++) {
-		//----calculate----
-		checkCudaErrors(cudaMemcpy(d_inputs, &trainset[i].inputs[0], NUM_INPUTS*sizeof(float), cudaMemcpyHostToDevice));
-
-		calculate(layers);
-
-		checkCudaErrors(cudaMemcpy(h_output, layers.fixedMat[layers.numFixedNets - 1].outlayer, sizeof(float), cudaMemcpyDeviceToHost));
-		//----end calculate-----
-
-		sampleoutputs.push_back(h_output[0]);
-
-		if (i == trainset.size() - 1 || trainset[i + 1].samplenum != currentSample) {
-			numerrors++;
-			float origmean = mean(sampleoutputs);
-			float origdev = stdev(sampleoutputs, origmean);
-			for (size_t j = 0; j < sampleoutputs.size(); j++) {
-				if (testPrintSampleAll) {
-					std::cout << "   Sample " << currentSample << "| Actual: " << trainset[i].correctoutput << " Measured: " << sampleoutputs[j] << " Error: " << sampleoutputs[j] - trainset[i].correctoutput;
-					outfile << "   Sample " << currentSample << "| Actual: " << trainset[i].correctoutput << " Measured: " << sampleoutputs[j] << " Error: " << sampleoutputs[j] - trainset[i].correctoutput;
-				}
-				if (fabs(sampleoutputs[j] - origmean) > origdev) {
-					sampleoutputs.erase(sampleoutputs.begin() + j);
-					j--;
-					if (testPrintSampleAll) {
-						std::cout << " DISCARDED";
-						outfile << " DISCARDED";
-					}
-				}
-				if (testPrintSampleAll) {
-					std::cout << std::endl;
-					outfile << std::endl;
-				}
-			}
-			float newmean = mean(sampleoutputs);
-			float newstdev = stdev(sampleoutputs, newmean);
-			float correct = trainset[i].correctoutput;
-			float newerror = newmean - correct;
-			error += fabs(newerror);
-
-			std::cout << "Sample " << currentSample << "| Actual: " << correct << " Measured: " << newmean << " +/- " << newstdev << " Error: " << newerror << std::endl;
-			if (outfile.is_open()) {
-				outfile << currentSample << " " << correct << " " << newmean << " " << newstdev << " " << newerror << std::endl;
-			}
-
-			sampleoutputs.clear();
-			if (i < trainset.size() - 1)
-				currentSample = trainset[i + 1].samplenum;
-		}
-	}
-
-	if (numerrors > 0) {
-		error /= numerrors;
-		//error = sqrt(error);
-	}
-	return error;
+		numBins = 1;
 }
+
 
 bool discardInput(float* inputs) {
 	if (NUM_INPUTS < 10)
@@ -1332,7 +1498,8 @@ bool discardInput(float* inputs) {
 	return fabs(begAvg - endAvg) > 1;
 }
 
-void sampleReadTrainSet(std::string learnsetname, bool discard, size_t* numDiscards) {
+//if overrideBinningSwitch is true, ignores the binnedOutput flag and always uses exact goal
+void sampleReadTrainSet(std::string learnsetname, bool discard, size_t* numDiscards, bool overrideBinningSwitch) {
 	if (numDiscards != NULL) {
 		numDiscards[0] = 0;
 		numDiscards[1] = 0;
@@ -1386,7 +1553,13 @@ void sampleReadTrainSet(std::string learnsetname, bool discard, size_t* numDisca
 			if (inputs.size() == NUM_INPUTS) {
 				IOPair io;
 				io.inputs.resize(NUM_INPUTS);
-				io.correctoutput = correctoutput;
+				if (binnedOutput && !overrideBinningSwitch) {
+					io.correctoutputs = getBinnedOutput(correctoutput);
+				}
+				else {
+					io.correctoutputs.resize(1);
+					io.correctoutputs[0] = correctoutput/OUTPUT_DIVISOR;
+				}
 				io.samplenum = samplenum;
 
 				size_t n = 0;
@@ -1577,4 +1750,19 @@ int getLCType() {
 		std::cout << "Need to have either convolutions or a fixed network (or both)!";
 		throw new std::runtime_error("Need to have either convolutions or a fixed network (or both)!");
 	}
+}
+
+std::vector<float> getBinnedOutput(float output) {
+	std::vector<float> bins;
+
+	bins.resize(numBins);
+	
+	for (size_t i = 0; i < bins.size(); i++) {
+		if (output >= binMin + i*binWidth && output < binMin + (i + 1)*binWidth)
+			bins[i] = BIN_POSITIVE_OUTPUT;
+		else
+			bins[i] = BIN_NEGATIVE_OUTPUT;
+	}
+
+	return bins;
 }

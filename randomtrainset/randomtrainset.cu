@@ -33,7 +33,7 @@ int main() {
 		auto readstart = std::chrono::high_resolution_clock::now();
 		size_t numDiscards[2];
 
-		sampleReadTrainSet(trainstring, discardSamples, numDiscards);
+		sampleReadTrainSet(trainstring, discardSamples, numDiscards, true);
 
 		auto readelapsed = std::chrono::high_resolution_clock::now() - readstart;
 		long long readtime = std::chrono::duration_cast<std::chrono::microseconds>(readelapsed).count();
@@ -46,7 +46,7 @@ int main() {
 	else {
 		auto readstart = std::chrono::high_resolution_clock::now();
 
-		numSamples = readTrainSet(trainstring);
+		numSamples = readTrainSet(trainstring, 1, 0, true);
 
 		auto readelapsed = std::chrono::high_resolution_clock::now() - readstart;
 		long long readtime = std::chrono::duration_cast<std::chrono::microseconds>(readelapsed).count();

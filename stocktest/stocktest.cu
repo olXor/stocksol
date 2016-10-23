@@ -111,7 +111,7 @@ int main() {
 			backupNum += backupInterval;
 		}
 		else
-			std::cout << "Error " << error << std::endl;
+			std::cout << "Average Error " << error << std::endl;
 	} while (testBackups);
 
 #ifdef LOCAL
