@@ -34,6 +34,11 @@ size_t totalSamples;
 size_t numRunSetStart;
 
 float stepMult;
+float stepAdjustment = 1.0f;
+
+float redoErrorThreshold = 0.0f;
+float redoStepAdjustment = 1.0f;
+float successStepAdjustment = 1.0f;
 
 bool randomizeTrainSetEveryRun = true;
 bool randomizeSubsetOnThreshold = false;
@@ -59,7 +64,7 @@ float annealingMultiplier() {
 }
 
 float stepMultiplier(size_t numRuns) {
-	return annealingMultiplier()*stepMult;
+	return annealingMultiplier()*stepMult*stepAdjustment;
 }
 
 void updateLastErrors(float error) {
@@ -112,18 +117,34 @@ int main() {
 	}
 
 	std::cout << "Calculating initial error: ";
-	auto initstart = std::chrono::high_resolution_clock::now();
-
 	float initError;
+	float* initSecError = new float[4];
+	initSecError[0] = 0.0f;
+	initSecError[1] = 0.0f;
+	initSecError[2] = 0.0f;
+	initSecError[3] = 0.0f;
+	auto initstart = std::chrono::high_resolution_clock::now();
 	if (pairedTraining)
 		initError = runPairedSim(pairedLayers, false, 0, trainSamples);
-	else
-		initError = runSim(layers, false, 0, trainSamples);
+	else {
+		initError = runSim(layers, false, 0, trainSamples, false, initSecError);
+	}
+	float prevAfterError = initError;
 
 	auto initelapsed = std::chrono::high_resolution_clock::now() - initstart;
 	long long inittime = std::chrono::duration_cast<std::chrono::microseconds>(initelapsed).count();
 
-	std::cout << inittime / 1000000 << " s, Error: " << initError << std::endl;
+	std::cout << inittime / 1000000 << " s, Error: " << initError;
+	if (initSecError[0] != 0.0f)
+		std::cout << " SE1: " << initSecError[0];
+	if (initSecError[1] != 0.0f)
+		std::cout << " SE2: " << initSecError[1];
+	if (initSecError[2] != 0.0f)
+		std::cout << " SE3: " << initSecError[2];
+	if (initSecError[3] != 0.0f)
+		std::cout << " SE4: " << initSecError[3];
+	std::cout << std::endl;
+	delete[] initSecError;
 	updateLastErrors(initError);
 
 	while (true) {
@@ -156,20 +177,52 @@ int main() {
 		}
 
 		float afterError;
+		float* afterSecError = new float[4];
+		afterSecError[0] = 0.0f;
+		afterSecError[1] = 0.0f;
+		afterSecError[2] = 0.0f;
+		afterSecError[3] = 0.0f;
 		if (pairedTraining)
 			afterError = runPairedSim(pairedLayers, false, 0, trainSamples);
 		else
-			afterError = runSim(layers, false, 0, trainSamples);
-		updateLastErrors(afterError);
+			afterError = runSim(layers, false, 0, trainSamples, false, afterSecError);
 
 		auto gpuelapsed = std::chrono::high_resolution_clock::now() - gpustart;
 		long long gputime = std::chrono::duration_cast<std::chrono::microseconds>(gpuelapsed).count();
+		std::cout << gputime / 1000000 << " s, Error: " << afterError;
+		if (afterSecError[0] != 0.0f) {
+			std::cout << " SE1: " << afterSecError[0];
+		}
+		if (afterSecError[1] != 0.0f) {
+			std::cout << " SE2: " << afterSecError[1];
+		}
+		if (afterSecError[2] != 0.0f) {
+			std::cout << " SE3: " << afterSecError[2];
+		}
+		if (afterSecError[3] != 0.0f) {
+			std::cout << " SE4: " << afterSecError[3];
+		}
+		std::cout << std::endl;
+		delete[] afterSecError;
+
+		if (redoErrorThreshold > 0.0f && afterError - prevAfterError > redoErrorThreshold) {
+			std::cout << "Error increase was above threshold; redoing last run with lower stepfactor" << std::endl;
+
+			if (pairedTraining)
+				loadPairedWeights(pairedLayers, savename);
+			else
+				loadWeights(layers, savename);
+			stepAdjustment *= redoStepAdjustment;
+			continue;
+		}
+		stepAdjustment *= successStepAdjustment;
+		prevAfterError = afterError;
+		updateLastErrors(afterError);
 		if (pairedTraining)
 			savePairedWeights(pairedLayers, savename);
 		else
 			saveWeights(layers, savename);
 		numRuns += nIter;
-		std::cout << gputime/1000000 << " s, Error: " << afterError << std::endl;
 
 		if (afterError < trainIncreaseThreshold && trainSamples < totalSamples) {
 			saveSetHistory(numSamples, numRuns - numRunSetStart, stepMult);
@@ -298,6 +351,12 @@ void loadLocalParameters() {
 			lss >> randomizeTrainSetEveryRun;
 		else if (var == "pairedTraining")
 			lss >> pairedTraining;
+		else if (var == "redoErrorThreshold")
+			lss >> redoErrorThreshold;
+		else if (var == "redoStepAdjustment")
+			lss >> redoStepAdjustment;
+		else if (var == "successStepAdjustment")
+			lss >> successStepAdjustment;
 	}
 }
 
