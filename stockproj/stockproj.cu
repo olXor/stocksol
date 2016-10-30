@@ -35,6 +35,7 @@ size_t numRunSetStart;
 
 float stepMult;
 float stepAdjustment = 1.0f;
+size_t stepAdjustmentNumStart = 0.0f;
 
 float redoErrorThreshold = 0.0f;
 float redoStepAdjustment = 1.0f;
@@ -118,11 +119,12 @@ int main() {
 
 	std::cout << "Calculating initial error: ";
 	float initError;
-	float* initSecError = new float[4];
+	float* initSecError = new float[5];
 	initSecError[0] = 0.0f;
 	initSecError[1] = 0.0f;
 	initSecError[2] = 0.0f;
 	initSecError[3] = 0.0f;
+	initSecError[4] = 0.0f;
 	auto initstart = std::chrono::high_resolution_clock::now();
 	if (pairedTraining)
 		initError = runPairedSim(pairedLayers, false, 0, trainSamples);
@@ -143,15 +145,21 @@ int main() {
 		std::cout << " SE3: " << initSecError[2];
 	if (initSecError[3] != 0.0f)
 		std::cout << " SE4: " << initSecError[3];
+	if (initSecError[4] != 0.0f)
+		std::cout << " SE5: " << initSecError[4];
 	std::cout << std::endl;
 	delete[] initSecError;
 	updateLastErrors(initError);
 
 	while (true) {
 		if (pairedTraining)
-			std::cout << nIter << "+1 runs on " << numSamples << " sample pairs: ";
+			std::cout << nIter << "+1 runs on " << numSamples << " sample pairs";
 		else
-			std::cout << nIter << "+1 runs on " << numSamples << " samples: ";
+			std::cout << nIter << "+1 runs on " << numSamples << " samples";
+		if (trainSamples >= stepAdjustmentNumStart && redoErrorThreshold > 0.0f) {
+			std::cout << "(SA: " << stepAdjustment << ")";
+		}
+		std::cout << ": ";
 		auto gpustart = std::chrono::high_resolution_clock::now();
 
 		if (randomizeSubsetOnThreshold) {
@@ -177,11 +185,12 @@ int main() {
 		}
 
 		float afterError;
-		float* afterSecError = new float[4];
+		float* afterSecError = new float[5];
 		afterSecError[0] = 0.0f;
 		afterSecError[1] = 0.0f;
 		afterSecError[2] = 0.0f;
 		afterSecError[3] = 0.0f;
+		afterSecError[4] = 0.0f;
 		if (pairedTraining)
 			afterError = runPairedSim(pairedLayers, false, 0, trainSamples);
 		else
@@ -202,20 +211,25 @@ int main() {
 		if (afterSecError[3] != 0.0f) {
 			std::cout << " SE4: " << afterSecError[3];
 		}
+		if (afterSecError[4] != 0.0f) {
+			std::cout << " SE5: " << afterSecError[4];
+		}
 		std::cout << std::endl;
 		delete[] afterSecError;
 
-		if (redoErrorThreshold > 0.0f && afterError - prevAfterError > redoErrorThreshold) {
-			std::cout << "Error increase was above threshold; redoing last run with lower stepfactor" << std::endl;
+		if (trainSamples >= stepAdjustmentNumStart) {
+			if (redoErrorThreshold > 0.0f && prevAfterError > 0.0f && afterError - prevAfterError > redoErrorThreshold) {
+				std::cout << "Error increase was above threshold; redoing last run with lower stepfactor" << std::endl;
 
-			if (pairedTraining)
-				loadPairedWeights(pairedLayers, savename);
-			else
-				loadWeights(layers, savename);
-			stepAdjustment *= redoStepAdjustment;
-			continue;
+				if (pairedTraining)
+					loadPairedWeights(pairedLayers, savename);
+				else
+					loadWeights(layers, savename);
+				stepAdjustment *= redoStepAdjustment;
+				continue;
+			}
+			stepAdjustment *= successStepAdjustment;
 		}
-		stepAdjustment *= successStepAdjustment;
 		prevAfterError = afterError;
 		updateLastErrors(afterError);
 		if (pairedTraining)
@@ -236,6 +250,7 @@ int main() {
 			else
 				numSamples = readData(1, trainSamples);
 			stepMult = max(stepMultDecFactor*stepMult, minimumStepMult);
+			prevAfterError = -1.0f;
 		}
 
 		saveResults(numRuns, afterError);
@@ -357,6 +372,8 @@ void loadLocalParameters() {
 			lss >> redoStepAdjustment;
 		else if (var == "successStepAdjustment")
 			lss >> successStepAdjustment;
+		else if (var == "stepAdjustmentNumStart")
+			lss >> stepAdjustmentNumStart;
 	}
 }
 

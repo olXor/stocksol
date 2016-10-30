@@ -136,6 +136,7 @@ float runSim(LayerCollection layers, bool train, float customStepFactor, size_t 
 	float secError2 = 0.0f;
 	float secError3 = 0.0f;
 	float secError4 = 0.0f;
+	float secError5 = 0.0f;
 	size_t numerrors = 0;
 	for (size_t i = 0; i < trainSamplesNum; i++) {
 		numerrors++;
@@ -179,7 +180,11 @@ float runSim(LayerCollection layers, bool train, float customStepFactor, size_t 
 					totalCert += h_output[j];
 					avgPrediction += (binMin + binWidth*j + binWidth/2)*h_output[j];
 				}
+				float unsquare = h_output[j] - trainset[i].correctbins[j];
+				newerror += unsquare*unsquare;
 			}
+			newerror = sqrt(newerror / numBins);
+			error += newerror;
 			avgPrediction /= totalCert;
 			float unsquare = (avgPrediction - trainset[i].correctoutput);
 			secError += fabs(unsquare);
@@ -189,14 +194,13 @@ float runSim(LayerCollection layers, bool train, float customStepFactor, size_t 
 			secError4 += unsquare*unsquare;
 
 			if (trainset[i].correctbins[maxBin] != BIN_POSITIVE_OUTPUT){
-				error += 1.0f;
+				secError5 += 1.0f;
 			}
 		}
 		else {
 			float unsquare = (h_output[0] - trainset[i].correctoutput);
 			newerror += unsquare*unsquare;
-			//error += newerror*newerror;
-			error += sqrt(newerror);
+			error += sqrt(unsquare);			//bit unnecessarily convoluted here perhaps
 		}
 
 		if (print) {
@@ -229,15 +233,18 @@ float runSim(LayerCollection layers, bool train, float customStepFactor, size_t 
 		secError2 /= numerrors;
 		secError3 /= numerrors;
 		secError4 /= numerrors;
-		//error = sqrt(error);
+		secError5 /= numerrors;
 	}
-	secError2 = sqrt(secError2);
-	secError4 = sqrt(secError4);
+	if (binnedOutput) {
+		secError2 = sqrt(secError2);
+		secError4 = sqrt(secError4);
+	}
 	if (secondaryError != NULL) {
 		secondaryError[0] = secError;
 		secondaryError[1] = secError2;
 		secondaryError[2] = secError3;
 		secondaryError[3] = secError4;
+		secondaryError[4] = secError5;
 	}
 	if (binnedOutput)
 		return error;
@@ -1299,6 +1306,15 @@ float sampleTestSim(LayerCollection layers, std::string ofname, bool testPrintSa
 		samplebins[i] = 0.0f;
 	size_t numCorrectlyBinned = 0;
 	size_t numIncorrectlyBinned = 0;
+	float avgMAV = 0.0f;    //mean absolute value
+	float avgRMS = 0.0f;
+	float binMAV = 0.0f;	
+	float binRMS = 0.0f;
+	float squareMAV = 0.0f;
+	float squareRMS = 0.0f;
+	size_t avgClose = 0;
+	size_t binClose = 0;
+	size_t squareClose = 0;
 
 	std::ofstream outfile;
 	if (ofname != "")
@@ -1326,22 +1342,46 @@ float sampleTestSim(LayerCollection layers, std::string ofname, bool testPrintSa
 			if (binnedOutput) {
 				float maxProb = 0.0f;
 				float totalProb = 0.0f;
+				float totalSquare = 0.0f;
 				size_t bestBin = 0;
 				size_t correctBin = 0;
+				float correctoutput = trainset[i].correctoutput;
+				float avgRes = 0.0f;
+				float squareRes = 0.0f;
 
 				for (size_t j = 0; j < numBins; j++) {
 					if (samplebins[j] > maxProb) {
 						maxProb = samplebins[j];
 						bestBin = j;
 					}
-					if (samplebins[j] > 0.0f)
+					if (samplebins[j] > 0.0f) {
 						totalProb += samplebins[j];
+						totalSquare += samplebins[j] * samplebins[j];
+						avgRes += samplebins[j]*(binMin + j*binWidth + binWidth / 2);
+						squareRes += samplebins[j] * samplebins[j] * (binMin + j*binWidth + binWidth / 2);
+					}
 					if (trainset[i].correctbins[j] == BIN_POSITIVE_OUTPUT) {
 						correctBin = j;
 					}
 				}
 
-				std::cout << "Sample " << currentSample << "| Actual: " << binMin + correctBin*binWidth << "-" << binMin + (correctBin + 1)*binWidth << " Measured: " << binMin + bestBin*binWidth << "-" << binMin + (bestBin + 1)*binWidth << " with confidence " << maxProb / totalProb;
+				avgRes /= totalProb;
+				squareRes /= totalSquare;
+				float binRes = binMin + bestBin*binWidth + binWidth / 2;
+				avgMAV += fabs(avgRes - correctoutput);
+				avgRMS += (avgRes - correctoutput)*(avgRes - correctoutput);
+				binMAV += fabs(binRes - correctoutput);
+				binRMS += (binRes - correctoutput)*(binRes - correctoutput);
+				squareMAV += fabs(squareRes - correctoutput);
+				squareRMS += (squareRes - correctoutput)*(squareRes - correctoutput);
+
+				if (fabs(avgRes - correctoutput) <= binWidth)
+					avgClose++;
+				if (fabs(binRes - correctoutput) <= binWidth)
+					binClose++;
+				if (fabs(squareRes - correctoutput) <= binWidth)
+					squareClose++;
+				std::cout << "Sample " << currentSample << "| Actual: " << correctoutput << " Top Bin: " << binMin + bestBin*binWidth << "-" << binMin + (bestBin + 1)*binWidth << " with confidence " << maxProb / totalProb << " (E: " << binRes - correctoutput << ") Weighted Average: " << avgRes << " (E: " << avgRes - correctoutput << ") Squared Average: " << squareRes << " (E: " << squareRes - correctoutput << ")";
 				if (correctBin == bestBin) {
 					std::cout << " CORRECT" << std::endl;
 					numCorrectlyBinned++;
@@ -1355,7 +1395,7 @@ float sampleTestSim(LayerCollection layers, std::string ofname, bool testPrintSa
 						error += binWidth*(bestBin - correctBin);
 				}
 				if (outfile.is_open()) {
-					outfile << currentSample << " " << binMin + correctBin*binWidth << " " << binMin + bestBin*binWidth << " " << maxProb / totalProb << std::endl;
+					outfile << currentSample << " " << correctoutput << " " << binRes << " " << avgRes << " " << squareRes << std::endl;
 				}
 
 				for (size_t j = 0; j < numBins; j++) {
@@ -1409,7 +1449,17 @@ float sampleTestSim(LayerCollection layers, std::string ofname, bool testPrintSa
 	if (numerrors > 0) {
 		if (binnedOutput) {
 			std::cout << "Correctly Binned: " << numCorrectlyBinned << "/" << numCorrectlyBinned + numIncorrectlyBinned << "(" << 1.0f*numCorrectlyBinned / (numCorrectlyBinned + numIncorrectlyBinned) << ")" << std::endl;
+			avgMAV /= numerrors;
+			binMAV /= numerrors;
+			squareMAV /= numerrors;
+			avgRMS = sqrt(avgRMS / numerrors);
+			binRMS = sqrt(binRMS / numerrors);
+			squareRMS = sqrt(squareRMS / numerrors);
+
+			std::cout << "Avg MAV: " << avgMAV << " Avg RMS: " << avgRMS << " Bin MAV: " << binMAV << " Bin RMS: " << binRMS << " Square MAV: " << squareMAV << " Square RMS: " << squareRMS << std::endl;
+			std::cout << "Within Bin Width: " << "Avg: " << avgClose << "/" << numerrors << "(" << 1.0f*avgClose / numerrors << ")" << "Bin: " << binClose << "/" << numerrors << "(" << 1.0f*binClose / numerrors << ")" << "Squared: " << squareClose << "/" << numerrors << "(" << 1.0f*squareClose / numerrors << ")" << std::endl;
 		}
+
 		error /= numerrors;
 		//error = sqrt(error);
 	}
