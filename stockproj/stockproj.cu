@@ -74,7 +74,6 @@ void updateLastErrors(float error) {
 		lastErrors.pop_front();
 }
 
-
 int main() {
 	srand((size_t)time(NULL));
 
@@ -125,6 +124,7 @@ int main() {
 	initSecError[2] = 0.0f;
 	initSecError[3] = 0.0f;
 	initSecError[4] = 0.0f;
+	disableDropout();
 	auto initstart = std::chrono::high_resolution_clock::now();
 	if (pairedTraining)
 		initError = runPairedSim(pairedLayers, false, 0, trainSamples);
@@ -168,11 +168,13 @@ int main() {
 		else if (randomizeTrainSetEveryRun)
 			randomizeTrainSet();
 
+		enableDropout();
 		for (size_t i = 0; i < nIter; i++) {
 			if (pairedTraining)
 				runPairedSim(pairedLayers, true, stepMultiplier(numRuns), trainSamples);
-			else
+			else {
 				runSim(layers, true, stepMultiplier(numRuns), trainSamples);
+			}
 #ifdef BATCH_MODE
 			if (pairedTraining) {
 				batchUpdate(pairedLayers.conv1);
@@ -184,6 +186,8 @@ int main() {
 #endif
 		}
 
+		loadSimVariables();	//to allow the user to change variables mid-run
+
 		float afterError;
 		float* afterSecError = new float[5];
 		afterSecError[0] = 0.0f;
@@ -191,10 +195,12 @@ int main() {
 		afterSecError[2] = 0.0f;
 		afterSecError[3] = 0.0f;
 		afterSecError[4] = 0.0f;
+		disableDropout();
 		if (pairedTraining)
 			afterError = runPairedSim(pairedLayers, false, 0, trainSamples);
-		else
+		else {
 			afterError = runSim(layers, false, 0, trainSamples, false, afterSecError);
+		}
 
 		auto gpuelapsed = std::chrono::high_resolution_clock::now() - gpustart;
 		long long gputime = std::chrono::duration_cast<std::chrono::microseconds>(gpuelapsed).count();

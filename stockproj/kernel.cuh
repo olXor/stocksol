@@ -2,6 +2,7 @@
 #include "device_launch_parameters.h"
 #include <helper_cuda.h>
 #include "params.h"
+#include <curand_kernel.h>
 
 struct ConvolutionMatrices {
 	float* inlayer;
@@ -15,6 +16,9 @@ struct ConvolutionMatrices {
 	float* outTDs;
 	float* inErrors;
 	float* outErrors;
+
+	curandState* randStates;
+	float* dropoutFactors;
 
 	size_t forwardSharedMem;
 	size_t backPropErrSharedMem;
@@ -80,6 +84,9 @@ struct FixedNetMatrices {
 	float* inErrors;
 	float* outErrors;
 
+	curandState* randStates;
+	float* dropoutFactors;
+
 	size_t forwardSharedMem;
 	size_t backwardSharedMem;
 	size_t numInputElements;
@@ -119,6 +126,11 @@ __global__ void calcFixedNet(FixedNetMatrices* mat, FixedNetParameters* pars);
 __global__ void bpFixedNet(FixedNetMatrices* mat, FixedNetParameters* pars);
 
 __global__ void calculateOutputError(FixedNetMatrices* mat, float* stepfactor, float* correctoutput, float* hostoutput);
+
+__global__ void initConvDropoutFactors(ConvolutionMatrices* mat, ConvolutionParameters* pars, size_t seed, size_t sequenceStart);
+__global__ void initFixedDropoutFactors(FixedNetMatrices* mat, FixedNetParameters* pars, size_t seed, size_t sequenceStart);
+__global__ void generateConvDropoutMask(ConvolutionMatrices* mat, ConvolutionParameters* pars, float dropout);
+__global__ void generateFixedDropoutMask(FixedNetMatrices* mat, FixedNetParameters* pars, float dropout);
 
 #ifdef BATCH_MODE
 __global__ void batchUpdateConvWeights(ConvolutionMatrices* mat, ConvolutionParameters* pars);

@@ -25,6 +25,13 @@ float binMin = 0.0f;
 float binMax = 200.0f;
 size_t numBins = 1;
 
+float convDropoutWeight = 1.0f;
+float savedConvDropoutWeight = 1.0f;	//for retrieving when dropout is enabled after being disabled
+float fixedDropoutWeight = 1.0f;
+float savedFixedDropoutWeight = 1.0f;
+
+size_t numFixedHiddenNeurons = 2 * NUM_NEURONS;
+
 void setStrings(std::string data, std::string save) {
 	datastring = data;
 	savestring = save;
@@ -117,6 +124,8 @@ float runSim(LayerCollection layers, bool train, float customStepFactor, size_t 
 
 	float stepfac = STEPFACTOR*customStepFactor/numBins;
 	checkCudaErrors(cudaMemcpyAsync(layers.stepfactor, &stepfac, sizeof(float), cudaMemcpyHostToDevice));
+
+	generateDropoutMask(&layers);
 
 	cudaStream_t mainStream;
 	//checkCudaErrors(cudaStreamCreate(&mainStream));
@@ -246,6 +255,8 @@ float runSim(LayerCollection layers, bool train, float customStepFactor, size_t 
 		secondaryError[3] = secError4;
 		secondaryError[4] = secError5;
 	}
+
+	checkCudaErrors(cudaFreeHost(h_output));
 	if (binnedOutput)
 		return error;
 	else
@@ -619,6 +630,8 @@ void initializeLayers(LayerCollection* layers){
 
 	checkCudaErrors(cudaMalloc(&layers->stepfactor, sizeof(float)));
 	checkCudaErrors(cudaMalloc(&layers->correctoutput, numBins*sizeof(float)));
+
+	initializeDropoutRNG(layers);
 }
 
 void initializeConvolutionMatrices(ConvolutionMatrices* mat, ConvolutionParameters* pars) {
@@ -656,6 +669,17 @@ void initializeConvolutionMatrices(ConvolutionMatrices* mat, ConvolutionParamete
 	checkCudaErrors(cudaMalloc(&mat->outTDs, pars->numOutputNeurons*pars->numOutputLocs*sizeof(float)));
 	checkCudaErrors(cudaMalloc(&mat->inErrors, pars->numInputNeurons*pars->numInputLocs*sizeof(float)));
 	checkCudaErrors(cudaMalloc(&mat->outErrors, pars->numOutputNeurons*pars->numOutputLocs*sizeof(float)));
+
+	size_t numDropouts = pars->numOutputNeurons*pars->numOutputLocs;
+	float* h_dropouts = new float[numDropouts];
+	for (size_t i = 0; i < numDropouts; i++) {
+		h_dropouts[i] = 1.0f;
+	}
+	checkCudaErrors(cudaMalloc(&mat->dropoutFactors, numDropouts*sizeof(float)));
+	checkCudaErrors(cudaMemcpy(mat->dropoutFactors, h_dropouts, numDropouts*sizeof(float), cudaMemcpyHostToDevice));
+	delete h_dropouts;
+
+	checkCudaErrors(cudaMalloc(&mat->randStates, numDropouts*sizeof(curandState)));
 
 	mat->forwardSharedMem = getConvolveSharedSize(pars);
 	mat->backPropErrSharedMem = getBPEConvolutionSharedSize(pars);
@@ -724,6 +748,17 @@ void initializeFixedMatrices(FixedNetMatrices* mat, FixedNetParameters* pars, bo
 	checkCudaErrors(cudaMalloc(&mat->outTDs, pars->numOutputNeurons*sizeof(float)));
 	checkCudaErrors(cudaMalloc(&mat->inErrors, pars->numInputNeurons*sizeof(float)));
 	checkCudaErrors(cudaMalloc(&mat->outErrors, pars->numOutputNeurons*sizeof(float)));
+
+	size_t numDropouts = pars->numOutputNeurons;
+	float* h_dropouts = new float[numDropouts];
+	for (size_t i = 0; i < numDropouts; i++) {
+		h_dropouts[i] = 1.0f;
+	}
+	checkCudaErrors(cudaMalloc(&mat->dropoutFactors, numDropouts*sizeof(float)));
+	checkCudaErrors(cudaMemcpy(mat->dropoutFactors, h_dropouts, numDropouts*sizeof(float), cudaMemcpyHostToDevice));
+	delete h_dropouts;
+
+	checkCudaErrors(cudaMalloc(&mat->randStates, numDropouts*sizeof(curandState)));
 
 	mat->forwardSharedMem = getCalcFixedSharedSize(pars);
 	mat->backwardSharedMem = getBPFixedNetSharedSize(pars);
@@ -998,7 +1033,7 @@ LayerCollection createLayerCollection(size_t numInputs, int LCType) {
 	if (LCType == FULL_NETWORK) {
 		FixedNetParameters fix1;
 		fix1.numInputNeurons = 2 * NUM_NEURONS;
-		fix1.numOutputNeurons = 2 * NUM_NEURONS;
+		fix1.numOutputNeurons = numFixedHiddenNeurons;
 
 		fix1.forBlockX = fix1.numInputNeurons;
 		fix1.forBlockY = 1;
@@ -1014,7 +1049,7 @@ LayerCollection createLayerCollection(size_t numInputs, int LCType) {
 		layers.fixedPars.push_back(fix1);
 
 		FixedNetParameters fix2;
-		fix2.numInputNeurons = 2 * NUM_NEURONS;
+		fix2.numInputNeurons = numFixedHiddenNeurons;
 		fix2.numOutputNeurons = numBins;
 
 		fix2.forBlockX = fix2.numInputNeurons;
@@ -1033,7 +1068,7 @@ LayerCollection createLayerCollection(size_t numInputs, int LCType) {
 	else if (LCType == FIXED_ONLY) {
 		FixedNetParameters fix1;
 		fix1.numInputNeurons = numInputs;
-		fix1.numOutputNeurons = 2*numInputs;
+		fix1.numOutputNeurons = numFixedHiddenNeurons;
 
 		fix1.forBlockX = fix1.numInputNeurons;
 		fix1.forBlockY = 1;
@@ -1049,7 +1084,7 @@ LayerCollection createLayerCollection(size_t numInputs, int LCType) {
 		layers.fixedPars.push_back(fix1);
 
 		FixedNetParameters fix2;
-		fix2.numInputNeurons = 2*numInputs;
+		fix2.numInputNeurons = numFixedHiddenNeurons;
 		fix2.numOutputNeurons = numBins;
 
 		fix2.forBlockX = fix2.numInputNeurons;
@@ -1320,6 +1355,9 @@ float sampleTestSim(LayerCollection layers, std::string ofname, bool testPrintSa
 	if (ofname != "")
 		outfile.open(ofname);
 
+	disableDropout();
+	generateDropoutMask(&layers);
+
 	for (size_t i = 0; i < trainset.size(); i++) {
 		//----calculate----
 		checkCudaErrors(cudaMemcpy(d_inputs, &trainset[i].inputs[0], NUM_INPUTS*sizeof(float), cudaMemcpyHostToDevice));
@@ -1566,6 +1604,16 @@ void loadParameters(std::string parName) {
 			lss >> binMax;
 		else if (var == "binWidth")
 			lss >> binWidth;
+		else if (var == "convDropoutWeight") {
+			lss >> convDropoutWeight;
+			savedConvDropoutWeight = convDropoutWeight;
+		}
+		else if (var == "fixedDropoutWeight") {
+			lss >> fixedDropoutWeight;
+			savedFixedDropoutWeight = fixedDropoutWeight;
+		}
+		else if (var == "numFixedHiddenNeurons")
+			lss >> numFixedHiddenNeurons;
 	}
 
 	if (binnedOutput)
@@ -1856,6 +1904,83 @@ std::vector<float> getBinnedOutput(float output) {
 		else
 			bins[i] = BIN_NEGATIVE_OUTPUT;
 	}
+	if (output < binMin)
+		bins[0] = BIN_POSITIVE_OUTPUT;
+	else if (output > binMin + numBins*binWidth)
+		bins[numBins - 1] = BIN_POSITIVE_OUTPUT;
 
 	return bins;
+}
+
+void initializeDropoutRNG(LayerCollection* lc) {
+	size_t seed = rand();
+	size_t sequenceStart = 0;
+	for (size_t i = 0; i < lc->numConvolutions; i++) {
+		ConvolutionMatrices* lm = &lc->convMat[i];
+		ConvolutionParameters* lp = &lc->convPars[i];
+		ConvolutionMatrices* d_lm = lc->d_convMat[i];
+		ConvolutionParameters* d_lp = lc->d_convPars[i];
+		initConvDropoutFactors << <lp->numOutputLocs, lp->numOutputNeurons >> >(d_lm, d_lp, seed, sequenceStart);
+		checkCudaErrors(cudaPeekAtLastError());
+		sequenceStart += lp->numOutputNeurons;
+	}
+
+	seed = rand();
+	sequenceStart = 0;
+	for (size_t i = 0; i < lc->numFixedNets; i++) {
+		FixedNetMatrices* lm = &lc->fixedMat[i];
+		FixedNetParameters* lp = &lc->fixedPars[i];
+		FixedNetMatrices* d_lm = lc->d_fixedMat[i];
+		FixedNetParameters* d_lp = lc->d_fixedPars[i];
+		initFixedDropoutFactors << <1, lp->numOutputNeurons >> >(d_lm, d_lp, seed, sequenceStart);
+		checkCudaErrors(cudaPeekAtLastError());
+		sequenceStart += lp->numOutputNeurons;
+	}
+}
+
+void generateDropoutMask(LayerCollection* lc) {
+	for (size_t i = 0; i < lc->numConvolutions; i++) {
+		ConvolutionMatrices* lm = &lc->convMat[i];
+		ConvolutionParameters* lp = &lc->convPars[i];
+		ConvolutionMatrices* d_lm = lc->d_convMat[i];
+		ConvolutionParameters* d_lp = lc->d_convPars[i];
+		generateConvDropoutMask << <lp->numOutputLocs, lp->numOutputNeurons >> >(d_lm, d_lp, convDropoutWeight);
+	}
+	for (size_t i = 0; i < lc->numFixedNets; i++) {
+		FixedNetMatrices* lm = &lc->fixedMat[i];
+		FixedNetParameters* lp = &lc->fixedPars[i];
+		FixedNetMatrices* d_lm = lc->d_fixedMat[i];
+		FixedNetParameters* d_lp = lc->d_fixedPars[i];
+		generateFixedDropoutMask << <1, lp->numOutputNeurons >> >(d_lm, d_lp, fixedDropoutWeight);
+	}
+}
+
+void disableDropout() {
+	convDropoutWeight = 1.0f;
+	fixedDropoutWeight = 1.0f;
+}
+
+void enableDropout() {
+	convDropoutWeight = savedConvDropoutWeight;
+	fixedDropoutWeight = savedFixedDropoutWeight;
+}
+
+std::vector<std::vector<IOPair>> getBinnedTrainset() {
+	std::vector<std::vector<IOPair>> binset;
+	binset.resize(numBins);
+	for (size_t i = 0; i < trainset.size(); i++) {
+		if (trainset[i].correctoutput < binMin) {
+			binset[0].push_back(trainset[i]);
+			continue;
+		}
+		if (trainset[i].correctoutput > binMin + numBins*binWidth) {
+			binset[numBins - 1].push_back(trainset[i]);
+			continue;
+		}
+		for (size_t j = 0; j < numBins; j++) {
+			if (trainset[i].correctoutput >= binMin + j*binWidth && trainset[i].correctoutput < binMin + (j + 1)*binWidth)
+				binset[j].push_back(trainset[i]);
+		}
+	}
+	return binset;
 }

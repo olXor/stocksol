@@ -24,6 +24,11 @@ extern bool tradeTypeLong;
 
 extern float OUTPUT_DIVISOR;
 
+extern size_t numBins;
+extern float binMin;
+extern float binMax;
+extern float binWidth;
+
 extern std::string savename;
 extern std::string trainstring;
 extern std::string randtrainstring;

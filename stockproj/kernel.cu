@@ -89,9 +89,9 @@ __global__ void convolve(ConvolutionMatrices* mat, ConvolutionParameters* pars) 
 
 	for (size_t j = outNeuron; j < numOutputNeurons; j += numOutThreads) {
 		if (inNeuron == 0)
-			mat->outlayer[j + outLoc*numOutputNeurons] = transferFunction(nodeStrengths[j*numInputNeurons]);
+			mat->outlayer[j + outLoc*numOutputNeurons] = mat->dropoutFactors[j + outLoc*numOutputNeurons] * transferFunction(nodeStrengths[j*numInputNeurons]);
 		if (inNeuron == 1 % numInThreads)
-			mat->outTDs[j + outLoc*numOutputNeurons] = transferDerivative(nodeStrengths[j*numInputNeurons]);
+			mat->outTDs[j + outLoc*numOutputNeurons] = mat->dropoutFactors[j + outLoc*numOutputNeurons] * transferDerivative(nodeStrengths[j*numInputNeurons]);
 	}
 }
 
@@ -259,7 +259,7 @@ __global__ void calcFixedNet(FixedNetMatrices* mat, FixedNetParameters* pars) {
 	if (inNeuron == 0) {
 		float outVal = outputs[0] - mat->outThresholds[outNeuron];
 		if (pars->TFOutput)
-			mat->outlayer[outNeuron] = transferFunction(outVal);
+			mat->outlayer[outNeuron] = mat->dropoutFactors[outNeuron] * transferFunction(outVal);
 		else
 			mat->outlayer[outNeuron] = outVal;
 	}
@@ -267,7 +267,7 @@ __global__ void calcFixedNet(FixedNetMatrices* mat, FixedNetParameters* pars) {
 	if (inNeuron == 1 % blockDim.x) {
 		if (pars->TFOutput) {
 			float outVal = outputs[0] - mat->outThresholds[outNeuron];
-			mat->outTDs[outNeuron] = transferDerivative(outVal);
+			mat->outTDs[outNeuron] = mat->dropoutFactors[outNeuron] * transferDerivative(outVal);
 		}
 		else
 			mat->outTDs[outNeuron] = 1;
@@ -365,6 +365,49 @@ __global__ void calculateOutputError(FixedNetMatrices* mat, float* stepfactor, f
 	float error = *stepfactor*(mat->outlayer[threadIdx.x] - correctoutput[threadIdx.x]);
 	mat->outErrors[threadIdx.x] = error;
 	hostoutput[threadIdx.x] = mat->outlayer[threadIdx.x];
+}
+
+__global__ void initConvDropoutFactors(ConvolutionMatrices* mat, ConvolutionParameters* pars, size_t seed, size_t sequenceStart) {
+	size_t outNeuron = threadIdx.x;
+	size_t numOutNeurons = pars->numOutputNeurons;
+	size_t outLoc = blockIdx.x;
+	size_t seq = sequenceStart + outNeuron;
+	curand_init(seed, seq, 0, &mat->randStates[outNeuron + numOutNeurons*outLoc]);
+}
+
+__global__ void initFixedDropoutFactors(FixedNetMatrices* mat, FixedNetParameters* pars, size_t seed, size_t sequenceStart) {
+	size_t outNeuron = threadIdx.x;
+	size_t seq = sequenceStart + outNeuron;
+	curand_init(seed, seq, 0, &mat->randStates[outNeuron]);
+}
+
+__global__ void generateConvDropoutMask(ConvolutionMatrices* mat, ConvolutionParameters* pars, float dropout) {
+	size_t outNeuron = threadIdx.x;
+	size_t numOutNeurons = pars->numOutputNeurons;
+	size_t outLoc = blockIdx.x;
+	size_t dropPosition = outNeuron + numOutNeurons*outLoc;
+	if (dropout > 1.0f) {
+		if (curand_uniform(&mat->randStates[dropPosition]) < 1.0f / dropout)
+			mat->dropoutFactors[dropPosition] = dropout;
+		else
+			mat->dropoutFactors[dropPosition] = 0.0f;
+	}
+	else {
+		mat->dropoutFactors[dropPosition] = 1.0f;
+	}
+}
+
+__global__ void generateFixedDropoutMask(FixedNetMatrices* mat, FixedNetParameters* pars, float dropout) {
+	size_t outNeuron = threadIdx.x;
+	if (dropout > 1.0f) {
+		if (curand_uniform(&mat->randStates[outNeuron]) < 1.0f / dropout)
+			mat->dropoutFactors[outNeuron] = dropout;
+		else
+			mat->dropoutFactors[outNeuron] = 0.0f;
+	}
+	else {
+		mat->dropoutFactors[outNeuron] = 1.0f;
+	}
 }
 
 size_t getConvolveSharedSize(ConvolutionParameters* pars) {

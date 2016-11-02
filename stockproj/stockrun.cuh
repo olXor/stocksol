@@ -97,4 +97,11 @@ float sampleTestSim(LayerCollection layers, std::string ofname, bool testPrintSa
 
 std::vector<float> getBinnedOutput(float output);
 
+void initializeDropoutRNG(LayerCollection* lc);
+void disableDropout();
+void enableDropout();
+void generateDropoutMask(LayerCollection* lc);
+
+std::vector<std::vector<IOPair>> getBinnedTrainset();
+
 #endif

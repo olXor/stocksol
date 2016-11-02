@@ -84,6 +84,7 @@ int main() {
 			}
 		}
 
+		disableDropout();		//don't drop neurons while testing.
 		std::cout << "Starting test: " << std::endl;
 		auto teststart = std::chrono::high_resolution_clock::now();
 		if (pairedTraining) {
