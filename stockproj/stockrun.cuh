@@ -57,8 +57,8 @@ struct PairedConvCollection {
 
 void setStrings(std::string data, std::string save);
 void freeMemory();
-size_t readTrainSet(std::string learnsetname, size_t begin = 1, size_t numIOs = 0, bool overrideBinningSwitch = false);
-float runSim(LayerCollection layers, bool train, float customStepFactor, size_t samples = 0, bool print = false, float* secondaryError = NULL);
+size_t readTrainSet(std::string learnsetname, size_t begin = 1, size_t numIOs = 0, bool overrideBinningSwitch = false, bool runOnTestSet = false);
+float runSim(LayerCollection layers, bool train, float customStepFactor, size_t samples = 0, bool print = false, float* secondaryError = NULL, bool runOnTestSet = false);
 float runPairedSim(PairedConvCollection layers, bool train, float customStepFactor, size_t samples = 0, bool print = false, size_t pairsAveraged = 0);
 float testSim(LayerCollection layers, std::string ofname = "");
 void saveWeights(LayerCollection layers, std::string fname);
@@ -87,12 +87,12 @@ PairedConvCollection createAndInitializePairedConvCollection(size_t numInputs);
 
 void randomizeTrainSet(size_t maxIndex = 0);
 
-size_t readExplicitTrainSet(std::string learnsetname, size_t begin, size_t numIOs);
+size_t readExplicitTrainSet(std::string learnsetname, size_t begin, size_t numIOs, bool runOnTestSet = false);
 void saveExplicitTrainSet(std::string learnsetname);
 
 void loadParameters(std::string parName);
 
-void sampleReadTrainSet(std::string learnsetname, bool discard, size_t* numDiscards, bool overrideBinningSwitch = false);
+void sampleReadTrainSet(std::string learnsetname, bool discard, size_t* numDiscards, bool overrideBinningSwitch = false, bool runOnTestSet = false);
 float sampleTestSim(LayerCollection layers, std::string ofname, bool testPrintSampleAll = false);
 
 std::vector<float> getBinnedOutput(float output);

@@ -13,6 +13,8 @@ Project("{8BC9CEB8-8B4A-11D0-8D11-00A0C91BC942}") = "mt4test", "mt4test\mt4test.
 EndProject
 Project("{8BC9CEB8-8B4A-11D0-8D11-00A0C91BC942}") = "flatdistbag", "flatdistbag\flatdistbag.vcxproj", "{580ADA92-1EE8-42EE-9C1A-9059423EA093}"
 EndProject
+Project("{8BC9CEB8-8B4A-11D0-8D11-00A0C91BC942}") = "freqspace", "freqspace\freqspace.vcxproj", "{E4F5A92A-D12F-4728-9602-F30C4A192299}"
+EndProject
 Global
 	GlobalSection(SolutionConfigurationPlatforms) = preSolution
 		Debug|ARM = Debug|ARM
@@ -73,6 +75,16 @@ Global
 		{580ADA92-1EE8-42EE-9C1A-9059423EA093}.Release|Win32.Build.0 = Release|Win32
 		{580ADA92-1EE8-42EE-9C1A-9059423EA093}.Release|x64.ActiveCfg = Release|x64
 		{580ADA92-1EE8-42EE-9C1A-9059423EA093}.Release|x64.Build.0 = Release|x64
+		{E4F5A92A-D12F-4728-9602-F30C4A192299}.Debug|ARM.ActiveCfg = Debug|Win32
+		{E4F5A92A-D12F-4728-9602-F30C4A192299}.Debug|Win32.ActiveCfg = Debug|Win32
+		{E4F5A92A-D12F-4728-9602-F30C4A192299}.Debug|Win32.Build.0 = Debug|Win32
+		{E4F5A92A-D12F-4728-9602-F30C4A192299}.Debug|x64.ActiveCfg = Debug|x64
+		{E4F5A92A-D12F-4728-9602-F30C4A192299}.Debug|x64.Build.0 = Debug|x64
+		{E4F5A92A-D12F-4728-9602-F30C4A192299}.Release|ARM.ActiveCfg = Release|Win32
+		{E4F5A92A-D12F-4728-9602-F30C4A192299}.Release|Win32.ActiveCfg = Release|Win32
+		{E4F5A92A-D12F-4728-9602-F30C4A192299}.Release|Win32.Build.0 = Release|Win32
+		{E4F5A92A-D12F-4728-9602-F30C4A192299}.Release|x64.ActiveCfg = Release|x64
+		{E4F5A92A-D12F-4728-9602-F30C4A192299}.Release|x64.Build.0 = Release|x64
 	EndGlobalSection
 	GlobalSection(SolutionProperties) = preSolution
 		HideSolutionNode = FALSE

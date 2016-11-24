@@ -14,6 +14,9 @@ extern size_t NUM_INPUTS;
 #define MAX_WEIGHT_CHANGE 0.1f
 #endif
 
+#define TRANSFER_TYPE_RECTIFIER 1
+#define TRANSFER_TYPE_SIGMOID 2
+
 #define STEPFACTOR 1e-4f
 
 #define LOCAL

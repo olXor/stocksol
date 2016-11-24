@@ -1,7 +1,7 @@
 #include "stockrun.cuh"
 #include "Shlwapi.h"
 
-#define nIter 5
+size_t nIter = 5;
 
 size_t initialTrainSamples = 2;
 size_t trainSamplesIncreaseFactor = 2;
@@ -20,12 +20,12 @@ size_t backupSampleNumStart = 0;
 
 #define RAND_EXPLICIT			//uses a test set with inputs in a random order (specified by randtrainstring)
 
-void saveResults(size_t numRuns, float afterError);
+void saveResults(size_t numRuns, float afterError, float* afterSecError, float testAfterError, float* testAfterSecError);
 void saveSetHistory(size_t nSamples, size_t nRuns, float stepFacMult);
 void loadLocalParameters();
 void loadSimVariables();
 void saveSimVariables();
-size_t readData(size_t begin, size_t numIOs);
+size_t readData(size_t begin, size_t numIOs, bool readTestSet = false);
 void backupFiles(std::string backname);
 
 size_t numRuns;
@@ -48,6 +48,15 @@ bool pairedTraining = false;
 
 #define ERRORS_SAVED 5
 std::list<float> lastErrors;
+
+bool printTestError = false;
+size_t minTrainSizeToPrintTestError = 0;
+bool testExplicitFile = false;
+std::string testfile = "testset";
+bool testUseSampleFile = true;
+bool discardSamples = false;
+
+#define numSecErrors 5
 
 float annealingMultiplier() {
 	if (lastErrors.size() == 0 || annealingStartError == 0)
@@ -108,22 +117,24 @@ int main() {
 
 	size_t numSamples;
 	if (randomizeSubsetOnThreshold) {
-		size_t tSamples = readData(1, 0);
+		size_t tSamples = readData(1, 0, true);
 		randomizeTrainSet();
 		numSamples = min(trainSamples, tSamples);
 	}
 	else {
-		numSamples = readData(1, trainSamples);
+		numSamples = readData(1, trainSamples, true);
 	}
 
 	std::cout << "Calculating initial error: ";
 	float initError;
-	float* initSecError = new float[5];
-	initSecError[0] = 0.0f;
-	initSecError[1] = 0.0f;
-	initSecError[2] = 0.0f;
-	initSecError[3] = 0.0f;
-	initSecError[4] = 0.0f;
+	float* initSecError = new float[numSecErrors];
+	for (size_t i = 0; i < numSecErrors; i++)
+		initSecError[i] = 0.0f;
+	float testInitError;
+	float* testInitSecError = new float[numSecErrors];
+	for (size_t i = 0; i < numSecErrors; i++)
+		testInitSecError[i] = 0.0f;
+
 	disableDropout();
 	auto initstart = std::chrono::high_resolution_clock::now();
 	if (pairedTraining)
@@ -132,21 +143,25 @@ int main() {
 		initError = runSim(layers, false, 0, trainSamples, false, initSecError);
 	}
 	float prevAfterError = initError;
+	if (printTestError && !pairedTraining) {
+		testInitError = runSim(layers, false, 0, 0, false, testInitSecError, true);
+	}
 
 	auto initelapsed = std::chrono::high_resolution_clock::now() - initstart;
 	long long inittime = std::chrono::duration_cast<std::chrono::microseconds>(initelapsed).count();
 
 	std::cout << inittime / 1000000 << " s, Error: " << initError;
-	if (initSecError[0] != 0.0f)
-		std::cout << " SE1: " << initSecError[0];
-	if (initSecError[1] != 0.0f)
-		std::cout << " SE2: " << initSecError[1];
-	if (initSecError[2] != 0.0f)
-		std::cout << " SE3: " << initSecError[2];
-	if (initSecError[3] != 0.0f)
-		std::cout << " SE4: " << initSecError[3];
-	if (initSecError[4] != 0.0f)
-		std::cout << " SE5: " << initSecError[4];
+	for (size_t i = 0; i < numSecErrors; i++) {
+		if (initSecError[i] != 0.0f)
+			std::cout << " SE" << i + 1 << ": " << initSecError[i];
+	}
+	if (printTestError && trainSamples >= minTrainSizeToPrintTestError && !pairedTraining) {
+		std::cout << " | Test Error: " << testInitError;
+	for (size_t i = 0; i < numSecErrors; i++) {
+		if (testInitSecError[i] != 0.0f)
+			std::cout << " SE" << i + 1 << ": " << testInitSecError[i];
+	}
+	}
 	std::cout << std::endl;
 	delete[] initSecError;
 	updateLastErrors(initError);
@@ -189,12 +204,9 @@ int main() {
 		loadSimVariables();	//to allow the user to change variables mid-run
 
 		float afterError;
-		float* afterSecError = new float[5];
-		afterSecError[0] = 0.0f;
-		afterSecError[1] = 0.0f;
-		afterSecError[2] = 0.0f;
-		afterSecError[3] = 0.0f;
-		afterSecError[4] = 0.0f;
+		float* afterSecError = new float[numSecErrors];
+		for (size_t i = 0; i < numSecErrors; i++)
+			afterSecError[i] = 0.0f;
 		disableDropout();
 		if (pairedTraining)
 			afterError = runPairedSim(pairedLayers, false, 0, trainSamples);
@@ -202,26 +214,32 @@ int main() {
 			afterError = runSim(layers, false, 0, trainSamples, false, afterSecError);
 		}
 
+
+		float testAfterError = 0.0f;
+		float* testAfterSecError = new float[numSecErrors];
+		for (size_t i = 0; i < numSecErrors; i++)
+			testAfterSecError[i] = 0.0f;
+		if (printTestError && trainSamples >= minTrainSizeToPrintTestError && !pairedTraining) {
+			for (size_t i = 0; i < numSecErrors; i++)
+				testAfterSecError[i] = 0.0f;
+			testAfterError = runSim(layers, false, 0, 0, false, testAfterSecError, true);
+		}
+
 		auto gpuelapsed = std::chrono::high_resolution_clock::now() - gpustart;
 		long long gputime = std::chrono::duration_cast<std::chrono::microseconds>(gpuelapsed).count();
 		std::cout << gputime / 1000000 << " s, Error: " << afterError;
-		if (afterSecError[0] != 0.0f) {
-			std::cout << " SE1: " << afterSecError[0];
+		for (size_t i = 0; i < numSecErrors; i++) {
+			if (afterSecError[i] != 0.0f)
+				std::cout << " SE" << i + 1 << ": " << afterSecError[i];
 		}
-		if (afterSecError[1] != 0.0f) {
-			std::cout << " SE2: " << afterSecError[1];
-		}
-		if (afterSecError[2] != 0.0f) {
-			std::cout << " SE3: " << afterSecError[2];
-		}
-		if (afterSecError[3] != 0.0f) {
-			std::cout << " SE4: " << afterSecError[3];
-		}
-		if (afterSecError[4] != 0.0f) {
-			std::cout << " SE5: " << afterSecError[4];
+		if (printTestError && trainSamples >= minTrainSizeToPrintTestError && !pairedTraining) {
+			std::cout << " | Test Error: " << testAfterError;
+			for (size_t i = 0; i < numSecErrors; i++) {
+				if (testAfterSecError[i] != 0.0f)
+					std::cout << " SE" << i + 1 << ": " << testAfterSecError[i];
+			}
 		}
 		std::cout << std::endl;
-		delete[] afterSecError;
 
 		if (trainSamples >= stepAdjustmentNumStart) {
 			if (redoErrorThreshold > 0.0f && prevAfterError > 0.0f && afterError - prevAfterError > redoErrorThreshold) {
@@ -259,8 +277,10 @@ int main() {
 			prevAfterError = -1.0f;
 		}
 
-		saveResults(numRuns, afterError);
+		saveResults(numRuns, afterError, afterSecError, testAfterError, testAfterSecError);
 		saveSimVariables();
+		delete[] afterSecError;
+		delete[] testAfterSecError;
 
 		if (trainSamples >= backupSampleNumStart && backupInterval > 0 && (numRuns - numRunSetStart) % backupInterval == 0) {
 			std::stringstream bss;
@@ -270,11 +290,19 @@ int main() {
 	}
 }
 
-void saveResults(size_t numRuns, float afterError) {
+void saveResults(size_t numRuns, float afterError, float* afterSecError, float testAfterError, float* testAfterSecError) {
 	std::stringstream resname;
 	resname << savestring << savename << "result";
 	std::ofstream resfile(resname.str().c_str(), std::ios_base::app);
-	resfile << numRuns << " " << afterError << std::endl;
+	resfile << numRuns << " " << afterError;
+	for (size_t i = 0; i < numSecErrors; i++) {
+		resfile << " " << afterSecError[i];
+	}
+	resfile << " " << testAfterError;
+	for (size_t i = 0; i < numSecErrors; i++) {
+		resfile << " " << testAfterSecError[i];
+	}
+	resfile << std::endl;
 }
 
 void saveSetHistory(size_t nSamples, size_t nRuns, float stepFacMult) {
@@ -316,7 +344,7 @@ void saveSimVariables() {
 	outfile << "numRunSetStart " << numRunSetStart << std::endl;
 }
 
-size_t readData(size_t begin, size_t numIOs) {
+size_t readData(size_t begin, size_t numIOs, bool readTestSet) {
 	if (numIOs > 0)
 		std::cout << "Reading " << numIOs << " samples from trainset: ";
 	else
@@ -337,6 +365,32 @@ size_t readData(size_t begin, size_t numIOs) {
 	else
 		numSamples = totalSamples;
 	std::cout << numSamples << "/" << totalSamples << " samples loaded" << std::endl;
+
+	if (readTestSet) {
+		std::cout << "Reading all samples from testset: ";
+
+		auto readstart = std::chrono::high_resolution_clock::now();
+		size_t testSamples;
+		if (!testUseSampleFile) {
+			if (!testExplicitFile)
+				testSamples = readTrainSet(testfile, 1, 0, false, true);
+			else
+				testSamples = readExplicitTrainSet(testfile, 1, 0, true);
+		}
+		else {
+			size_t numDiscards[2];
+			sampleReadTrainSet(testfile, discardSamples, numDiscards, false, true);
+
+			std::cout << numDiscards[0] << "/" << numDiscards[1] << " samples discarded" << std::endl;
+
+			testSamples = numDiscards[1] - numDiscards[0];
+		}
+
+		auto readelapsed = std::chrono::high_resolution_clock::now() - readstart;
+		long long readtime = std::chrono::duration_cast<std::chrono::microseconds>(readelapsed).count();
+		std::cout << readtime / 1000000 << " s" << std::endl;
+		std::cout << testSamples << " samples loaded" << std::endl;
+	}
 	return numSamples;
 }
 
@@ -380,6 +434,20 @@ void loadLocalParameters() {
 			lss >> successStepAdjustment;
 		else if (var == "stepAdjustmentNumStart")
 			lss >> stepAdjustmentNumStart;
+		else if (var == "printTestError")
+			lss >> printTestError;
+		else if (var == "minTrainSizeToPrintTestError")
+			lss >> minTrainSizeToPrintTestError;
+		else if (var == "testExplicitFile")
+			lss >> testExplicitFile;
+		else if (var == "testfile")
+			lss >> testfile;
+		else if (var == "discardSamples")
+			lss >> discardSamples;
+		else if (var == "testUseSampleFile")
+			lss >> testUseSampleFile;
+		else if (var == "nIter")
+			lss >> nIter;
 	}
 }
 

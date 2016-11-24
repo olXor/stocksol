@@ -1,20 +1,42 @@
 #include "kernel.cuh"
 #define NEGATIVE_TRANSFER_FACTOR 0.1f
 
-__host__ __device__ float transferFunction(float in) {
-	if (in / TRANSFER_WIDTH > TRANSFER_FUNCTION_LIMIT)
-		return in;
-	if (in / TRANSFER_WIDTH < -TRANSFER_FUNCTION_LIMIT)
-		return NEGATIVE_TRANSFER_FACTOR*in;
-	return TRANSFER_WIDTH*(log(1.0f + exp(in / TRANSFER_WIDTH)) - NEGATIVE_TRANSFER_FACTOR*log(1.0f + exp(-in / TRANSFER_WIDTH)));
+__host__ __device__ float transferFunction(float in, size_t type) {
+	if (type == TRANSFER_TYPE_RECTIFIER) {
+		if (in / TRANSFER_WIDTH > TRANSFER_FUNCTION_LIMIT)
+			return in;
+		if (in / TRANSFER_WIDTH < -TRANSFER_FUNCTION_LIMIT)
+			return NEGATIVE_TRANSFER_FACTOR*in;
+		return TRANSFER_WIDTH*(log(1.0f + exp(in / TRANSFER_WIDTH)) - NEGATIVE_TRANSFER_FACTOR*log(1.0f + exp(-in / TRANSFER_WIDTH)));
+	}
+	else if (type == TRANSFER_TYPE_SIGMOID) {
+		if (in / TRANSFER_WIDTH > TRANSFER_FUNCTION_LIMIT)
+			return 1.0f;
+		if (in / TRANSFER_WIDTH < -TRANSFER_FUNCTION_LIMIT)
+			return 0.0f;
+		return 1.0f / (1.0f + exp(-in / TRANSFER_WIDTH));
+	}
+	return 99999999.0f;
 }
 
-__host__ __device__ float transferDerivative(float in) {
-	if (in / TRANSFER_WIDTH > TRANSFER_FUNCTION_LIMIT)
-		return 1;
-	if (in / TRANSFER_WIDTH < -TRANSFER_FUNCTION_LIMIT)
-		return NEGATIVE_TRANSFER_FACTOR;
-	return 1.0f / (1.0f + exp(-in / TRANSFER_WIDTH)) + NEGATIVE_TRANSFER_FACTOR / (1.0f + exp(in / TRANSFER_WIDTH));
+__host__ __device__ float transferDerivative(float in, size_t type) {
+	if (type == TRANSFER_TYPE_RECTIFIER) {
+		if (in / TRANSFER_WIDTH > TRANSFER_FUNCTION_LIMIT)
+			return 1;
+		if (in / TRANSFER_WIDTH < -TRANSFER_FUNCTION_LIMIT)
+			return NEGATIVE_TRANSFER_FACTOR;
+		return 1.0f / (1.0f + exp(-in / TRANSFER_WIDTH)) + NEGATIVE_TRANSFER_FACTOR / (1.0f + exp(in / TRANSFER_WIDTH));
+	}
+	else if (type == TRANSFER_TYPE_SIGMOID) {
+		if (in / TRANSFER_WIDTH > TRANSFER_FUNCTION_LIMIT)
+			in = TRANSFER_FUNCTION_LIMIT * TRANSFER_WIDTH;
+		if (in / TRANSFER_WIDTH < -TRANSFER_FUNCTION_LIMIT)
+			in = -TRANSFER_FUNCTION_LIMIT * TRANSFER_WIDTH;
+		float expin = exp(-in / TRANSFER_WIDTH);
+		float denom = (expin + 1)*(expin + 1);
+		return expin / denom / TRANSFER_WIDTH;
+	}
+	return 9999999.0f;
 }
 
 #ifdef MAX_WEIGHT_CHANGE
@@ -89,9 +111,9 @@ __global__ void convolve(ConvolutionMatrices* mat, ConvolutionParameters* pars) 
 
 	for (size_t j = outNeuron; j < numOutputNeurons; j += numOutThreads) {
 		if (inNeuron == 0)
-			mat->outlayer[j + outLoc*numOutputNeurons] = mat->dropoutFactors[j + outLoc*numOutputNeurons] * transferFunction(nodeStrengths[j*numInputNeurons]);
+			mat->outlayer[j + outLoc*numOutputNeurons] = mat->dropoutFactors[j + outLoc*numOutputNeurons] * transferFunction(nodeStrengths[j*numInputNeurons], pars->transferType);
 		if (inNeuron == 1 % numInThreads)
-			mat->outTDs[j + outLoc*numOutputNeurons] = mat->dropoutFactors[j + outLoc*numOutputNeurons] * transferDerivative(nodeStrengths[j*numInputNeurons]);
+			mat->outTDs[j + outLoc*numOutputNeurons] = mat->dropoutFactors[j + outLoc*numOutputNeurons] * transferDerivative(nodeStrengths[j*numInputNeurons], pars->transferType);
 	}
 }
 
@@ -259,7 +281,7 @@ __global__ void calcFixedNet(FixedNetMatrices* mat, FixedNetParameters* pars) {
 	if (inNeuron == 0) {
 		float outVal = outputs[0] - mat->outThresholds[outNeuron];
 		if (pars->TFOutput)
-			mat->outlayer[outNeuron] = mat->dropoutFactors[outNeuron] * transferFunction(outVal);
+			mat->outlayer[outNeuron] = mat->dropoutFactors[outNeuron] * transferFunction(outVal, pars->transferType);
 		else
 			mat->outlayer[outNeuron] = outVal;
 	}
@@ -267,7 +289,7 @@ __global__ void calcFixedNet(FixedNetMatrices* mat, FixedNetParameters* pars) {
 	if (inNeuron == 1 % blockDim.x) {
 		if (pars->TFOutput) {
 			float outVal = outputs[0] - mat->outThresholds[outNeuron];
-			mat->outTDs[outNeuron] = mat->dropoutFactors[outNeuron] * transferDerivative(outVal);
+			mat->outTDs[outNeuron] = mat->dropoutFactors[outNeuron] * transferDerivative(outVal, pars->transferType);
 		}
 		else
 			mat->outTDs[outNeuron] = 1;

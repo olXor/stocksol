@@ -47,6 +47,8 @@ struct ConvolutionParameters {
 	size_t numOutputLocs;
 	size_t numInputNeurons;
 	size_t numOutputNeurons;
+
+	size_t transferType = TRANSFER_TYPE_RECTIFIER;
 };
 
 struct MaxPoolMatrices {
@@ -106,7 +108,9 @@ struct FixedNetParameters {
 	size_t numInputNeurons;
 	size_t numOutputNeurons;
 
-	bool TFOutput;
+	size_t transferType = TRANSFER_TYPE_RECTIFIER;
+
+	bool TFOutput = true;
 };
 
 __host__ __device__ float transferFunction(float in);
