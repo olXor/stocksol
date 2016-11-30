@@ -1,6 +1,8 @@
 #ifndef PARAMS_HEADER
 #define PARAMS_HEADER
 
+#include <vector>
+
 //#define BATCH_MODE
 
 extern size_t NUM_INPUTS;
@@ -37,6 +39,11 @@ extern std::string trainstring;
 extern std::string randtrainstring;
 
 extern size_t pairProximity;
+
+extern std::vector<float> testSelectBinMins;
+extern std::vector<float> testSelectBinMaxes;
+extern std::vector<float> oppositeSelectBinMins;
+extern std::vector<float> oppositeSelectBinMaxes;
 
 #define BIN_POSITIVE_OUTPUT 100.0f
 #define BIN_NEGATIVE_OUTPUT 0.0f

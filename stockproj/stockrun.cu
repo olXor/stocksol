@@ -38,6 +38,12 @@ bool sigmoidOnBinnedOutput = false;
 float binPositiveOutput = BIN_POSITIVE_OUTPUT;
 float binNegativeOutput = BIN_NEGATIVE_OUTPUT;
 
+bool testSelectBinSum = false;
+std::vector<float> testSelectBinMins;
+std::vector<float> testSelectBinMaxes;
+std::vector<float> oppositeSelectBinMins;
+std::vector<float> oppositeSelectBinMaxes;
+
 void setStrings(std::string data, std::string save) {
 	datastring = data;
 	savestring = save;
@@ -162,6 +168,14 @@ float runSim(LayerCollection layers, bool train, float customStepFactor, size_t 
 	float secError4 = 0.0f;
 	float secError5 = 0.0f;
 	size_t numerrors = 0;
+	
+	//stuff associated with trying to select only the most certain winning trades
+	std::vector<size_t> selectBinResults(numBins);
+	for (size_t i = 0; i < numBins; i++)
+		selectBinResults[i] = 0;
+	float selectBinSum = 0.0f;
+	size_t numSelected = 0;
+
 	for (size_t i = 0; i < trainSamplesNum; i++) {
 		numerrors++;
 
@@ -190,6 +204,7 @@ float runSim(LayerCollection layers, bool train, float customStepFactor, size_t 
 		checkCudaErrors(cudaEventSynchronize(calcDone));
 
 		float newerror = 0;
+		bool select = false;
 		if (binnedOutput) {
 			size_t maxBin = 0;
 			float maxCert = h_output[0];
@@ -202,7 +217,7 @@ float runSim(LayerCollection layers, bool train, float customStepFactor, size_t 
 				}
 				if (h_output[j] > 0.0f) {
 					totalCert += h_output[j];
-					avgPrediction += (binMin + binWidth*j + binWidth/2)*h_output[j];
+					avgPrediction += (binMin + binWidth*j + binWidth / 2)*h_output[j];
 				}
 				float unsquare = h_output[j] - (*dataset)[i].correctbins[j];
 				newerror += unsquare*unsquare;
@@ -219,6 +234,25 @@ float runSim(LayerCollection layers, bool train, float customStepFactor, size_t 
 
 			if ((*dataset)[i].correctbins[maxBin] != binPositiveOutput){
 				secError5 += 1.0f;
+			}
+
+			if (testSelectBinSum) {
+				select = true;
+				for (size_t j = 0; j < numBins; j++) {
+					if (h_output[j] < testSelectBinMins[j] || h_output[j] > testSelectBinMaxes[j]) {
+						select = false;
+						break;
+					}
+				}
+				if (select) {
+					numSelected++;
+					selectBinSum += (*dataset)[i].correctoutput;
+					for (size_t j = 0; j < numBins; j++) {
+						if ((*dataset)[i].correctbins[j] == BIN_POSITIVE_OUTPUT) {
+							selectBinResults[j]++;
+						}
+					}
+				}
 			}
 		}
 		else {
@@ -246,7 +280,13 @@ float runSim(LayerCollection layers, bool train, float customStepFactor, size_t 
 				for (size_t j = 0; j < numBins; j++) {
 					std::cout << (*dataset)[i].correctbins[j] << " ";
 				}
-				std::cout << "Error: " << sqrt(newerror/numBins) << std::endl;
+				std::cout << "Error: " << newerror << " ";
+
+				if (testSelectBinSum && select) {
+					std::cout << " SELECTED (" << (*dataset)[i].correctoutput << ") ";
+				}
+
+				std::cout << std::endl;
 			}
 		}
 	}
@@ -269,6 +309,14 @@ float runSim(LayerCollection layers, bool train, float customStepFactor, size_t 
 		secondaryError[2] = secError3;
 		secondaryError[3] = secError4;
 		secondaryError[4] = secError5;
+	}
+
+	if (testSelectBinSum) {
+		std::cout << "Selected Sample Sum: " << selectBinSum << "/" << numSelected << "=" << selectBinSum / numSelected << std::endl;
+		std::cout << "Selected Sample Bin Distribution: ";
+		for (size_t i = 0; i < numBins; i++) {
+			std::cout << selectBinResults[i] << "(" << 1.0f*selectBinResults[i] / numSelected << ") ";
+		}
 	}
 
 	checkCudaErrors(cudaFreeHost(h_output));
@@ -1655,6 +1703,22 @@ void loadParameters(std::string parName) {
 				binNegativeOutput = 0.0f;
 			}
 		}
+		else if (var == "testSelectBinSum")
+			lss >> testSelectBinSum;
+		else if (var == "testSelectBinMins") {
+			while(!lss.eof()) {
+				float binMin = -99999.0f;
+				lss >> binMin;
+				testSelectBinMins.push_back(binMin);
+			}
+		}
+		else if (var == "testSelectBinMaxes") {
+			while(!lss.eof()) {
+				float binMax = 99999.0f;
+				lss >> binMax;
+				testSelectBinMaxes.push_back(binMax);
+			}
+		}
 	}
 
 	if (binnedOutput)
@@ -2030,4 +2094,76 @@ std::vector<std::vector<IOPair>> getBinnedTrainset() {
 		}
 	}
 	return binset;
+}
+
+std::vector<IOPair>* getTrainSet() {
+	return &trainset;
+}
+
+std::vector<IOPair>* getTestSet() {
+	return &testset;
+}
+
+size_t readTwoPriceTrainSet(std::string learnsetname, size_t begin, size_t numIOs, bool overrideBinningSwitch, bool runOnTestSet) {
+	std::vector<IOPair>* dataset;
+	if (runOnTestSet)
+		dataset = &testset;
+	else
+		dataset = &trainset;
+	(*dataset).clear();
+	std::stringstream learnsetss;
+	learnsetss << datastring << learnsetname;
+	std::ifstream learnset(learnsetss.str().c_str());
+	std::string line;
+	std::list<float> prices;
+	size_t ionum = 0;
+	while (getline(learnset, line)) {
+		std::stringstream lss(line);
+		float price;
+		float longprof;
+		float shortprof;
+		lss >> price >> longprof >> shortprof;
+
+		prices.push_back(price);
+		if (prices.size() > NUM_INPUTS)
+			prices.pop_front();
+
+		if (prices.size() == NUM_INPUTS) {
+			ionum++;
+			if (numIOs > 0 && (ionum < begin || ionum >= begin + numIOs))
+				continue;
+			IOPair io;
+			io.inputs.resize(NUM_INPUTS);
+			io.correctoutput = longprof / OUTPUT_DIVISOR;
+			io.secondaryoutput = shortprof / OUTPUT_DIVISOR;
+
+			if (binnedOutput && !overrideBinningSwitch) {
+				io.correctbins = getBinnedOutput(longprof);
+				io.secondarybins = getBinnedOutput(shortprof);
+			}
+
+			size_t n = 0;
+			for (std::list<float>::iterator it = prices.begin(); it != prices.end(); it++) {
+				io.inputs[n] = *it;
+				n++;
+			}
+
+			float maxinput = -999999;
+			float mininput = 999999;
+			for (size_t j = 0; j < NUM_INPUTS; j++) {
+				if (io.inputs[j] > maxinput)
+					maxinput = io.inputs[j];
+				if (io.inputs[j] < mininput)
+					mininput = io.inputs[j];
+			}
+			for (size_t j = 0; j<NUM_INPUTS; j++) {
+				if (maxinput > mininput)
+					io.inputs[j] = 2 * (io.inputs[j] - mininput) / (maxinput - mininput) - 1;
+				else
+					io.inputs[j] = 0;
+			}
+			(*dataset).push_back(io);
+		}
+	}
+	return ionum;
 }

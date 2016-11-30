@@ -58,6 +58,9 @@ bool discardSamples = false;
 
 #define numSecErrors 5
 
+bool backupMinTestError = true;
+float minTestError = 9999999.0f;
+
 float annealingMultiplier() {
 	if (lastErrors.size() == 0 || annealingStartError == 0)
 		return 1;
@@ -157,10 +160,10 @@ int main() {
 	}
 	if (printTestError && trainSamples >= minTrainSizeToPrintTestError && !pairedTraining) {
 		std::cout << " | Test Error: " << testInitError;
-	for (size_t i = 0; i < numSecErrors; i++) {
-		if (testInitSecError[i] != 0.0f)
-			std::cout << " SE" << i + 1 << ": " << testInitSecError[i];
-	}
+		for (size_t i = 0; i < numSecErrors; i++) {
+			if (testInitSecError[i] != 0.0f)
+				std::cout << " SE" << i + 1 << ": " << testInitSecError[i];
+		}
 	}
 	std::cout << std::endl;
 	delete[] initSecError;
@@ -278,7 +281,6 @@ int main() {
 		}
 
 		saveResults(numRuns, afterError, afterSecError, testAfterError, testAfterSecError);
-		saveSimVariables();
 		delete[] afterSecError;
 		delete[] testAfterSecError;
 
@@ -287,6 +289,15 @@ int main() {
 			bss << savename << numSamples << "-" << numRuns - numRunSetStart;
 			backupFiles(bss.str().c_str());
 		}
+
+		if (backupMinTestError && testAfterError < minTestError) {
+			std::stringstream bss;
+			bss << savename << "Min";
+			backupFiles(bss.str().c_str());
+			minTestError = testAfterError;
+		}
+
+		saveSimVariables();
 	}
 }
 
@@ -330,6 +341,8 @@ void loadSimVariables() {
 			lss >> stepMult;
 		if (var == "numRunSetStart")
 			lss >> numRunSetStart;
+		if (var == "minTestError")
+			lss >> minTestError;
 	}
 }
 
@@ -342,6 +355,8 @@ void saveSimVariables() {
 	outfile << "trainSamples " << trainSamples << std::endl;
 	outfile << "stepMult " << stepMult << std::endl;
 	outfile << "numRunSetStart " << numRunSetStart << std::endl;
+	if (backupMinTestError)
+		outfile << "minTestError " << minTestError << std::endl;
 }
 
 size_t readData(size_t begin, size_t numIOs, bool readTestSet) {
@@ -448,6 +463,8 @@ void loadLocalParameters() {
 			lss >> testUseSampleFile;
 		else if (var == "nIter")
 			lss >> nIter;
+		else if (var == "backupMinTestError")
+			lss >> backupMinTestError;
 	}
 }
 

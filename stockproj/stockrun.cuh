@@ -22,7 +22,9 @@
 struct IOPair {
 	std::vector<float> inputs;
 	float correctoutput;
+	float secondaryoutput;
 	std::vector<float> correctbins;
+	std::vector<float> secondarybins;
 	size_t samplenum;
 };
 
@@ -103,5 +105,10 @@ void enableDropout();
 void generateDropoutMask(LayerCollection* lc);
 
 std::vector<std::vector<IOPair>> getBinnedTrainset();
+
+std::vector<IOPair>* getTrainSet();
+std::vector<IOPair>* getTestSet();
+
+size_t readTwoPriceTrainSet(std::string learnsetname, size_t begin, size_t numIOs, bool overrideBinningSwitch = false, bool runOnTestSet = false);
 
 #endif

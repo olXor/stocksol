@@ -27,6 +27,7 @@ size_t maxPCAIterations = 1000;
 float PCAEigenErrorThresh = 1e-5;
 
 bool PCASubtractMean = true;
+bool PCANormalize = true;
 
 size_t numFreqIntervalSize = 0;
 bool freqIncludePhaseInformation = true;
@@ -43,9 +44,9 @@ void normalizeFrequencies(std::vector<FreqComp>* freqs);
 void computePCAWeights(std::vector<std::vector<float>> data);
 void loadParameters(std::string parName);
 std::vector<float> computeMaxEigenVector(std::vector<std::vector<float>> covar);
-std::vector<std::vector<float>> loadPCAWeights(std::vector<float>* means);
+std::vector<std::vector<float>> loadPCAWeights(std::vector<float>* means, std::vector<float>* PCAMins, std::vector<float>* PCAMaxes);
 std::vector<std::vector<float>> createDataMatrix(std::vector<std::vector<FreqComp>> freqs);
-void savePCA(std::vector<std::vector<float>> data, std::vector<std::vector<float>> eigenvectors, std::vector<float> correct, std::vector<float> means);
+void savePCA(std::vector<std::vector<float>> data, std::vector<std::vector<float>> eigenvectors, std::vector<float> correct, std::vector<float> means, std::vector<float> PCAMins, std::vector<float> PCAMaxes);
 
 int main() {
 #ifdef LOCAL
@@ -114,7 +115,7 @@ int main() {
 			std::string dum;
 			std::stringstream dliness(dline);
 			float in;
-			for (int j = 0; j < column - 1; j++)
+			for (size_t j = 0; j < column - 1; j++)
 				dliness >> dum;
 			dliness >> in;
 
@@ -145,8 +146,10 @@ int main() {
 		computePCAWeights(data);
 	}
 	std::vector<float> means;
-	std::vector<std::vector<float>> pcaWeights = loadPCAWeights(&means);
-	savePCA(data, pcaWeights, correctoutputs, means);
+	std::vector<float> PCAMins;
+	std::vector<float> PCAMaxes;
+	std::vector<std::vector<float>> pcaWeights = loadPCAWeights(&means, &PCAMins, &PCAMaxes);
+	savePCA(data, pcaWeights, correctoutputs, means, PCAMins, PCAMaxes);
 #ifdef LOCAL
 	system("pause");
 #endif
@@ -154,7 +157,7 @@ int main() {
 
 void addPosition(std::vector<FreqComp>* freqs, float in, size_t pos) {
 	for (size_t k = 0; k < numFrequencies; k++) {
-		float angle = -2.0*M_PI*pos*(k+1) / numFrequencies;
+		float angle = -2.0f*M_PI*pos*(k+1) / numFrequencies;
 		(*freqs)[k].real += in*cos(angle);
 		(*freqs)[k].imag += in*sin(angle);
 	}
@@ -172,13 +175,13 @@ void normalizeFrequencies(std::vector<FreqComp>* freqs) {
 		if (real > 0 && imag >= 0)
 			(*freqs)[i].phase = atan(imag / real);
 		else if (real > 0 && imag < 0)
-			(*freqs)[i].phase = 2 * M_PI + atan(imag / real);
+			(*freqs)[i].phase = (float)2.0f * M_PI + atan(imag / real);
 		else if (real < 0)
-			(*freqs)[i].phase = M_PI - atan(imag / real);
+			(*freqs)[i].phase = (float)M_PI - atan(imag / real);
 		else if (imag > 0)
-			(*freqs)[i].phase = M_PI / 2;
+			(*freqs)[i].phase = (float)M_PI / 2;
 		else
-			(*freqs)[i].phase = -M_PI / 2;
+			(*freqs)[i].phase = -(float)M_PI / 2;
 	}
 	float maxamp = sqrt(maxampsq);
 	for (size_t i = 0; i < numFrequencies; i++) {
@@ -215,7 +218,8 @@ void loadParameters(std::string parName) {
 			lss >> numFreqIntervalSize;
 		else if (var == "freqIncludePhaseInformation")
 			lss >> freqIncludePhaseInformation;
-
+		else if (var == "PCANormalize")
+			lss >> PCANormalize;
 	}
 
 	pcastring = trainstring + "PCA";
@@ -247,6 +251,8 @@ void computePCAWeights(std::vector<std::vector<float>> data) {
 	}
 	pcaweights << std::endl;
 
+	std::vector<std::vector<float>> origData = data;	//mean-subtracted
+
 	std::vector<std::vector<float>> covar;
 	covar.resize(numDims);
 	for (size_t i = 0; i < numDims; i++)
@@ -277,6 +283,38 @@ void computePCAWeights(std::vector<std::vector<float>> data) {
 		}
 		data = tmp;
 	}
+
+	//we compute the projections simply to save the range of each PCA variable; a little inefficient but whatever
+	std::vector<float> pcaMins;
+	std::vector<float> pcaMaxes;
+	pcaMins.resize(eigenvectors.size());
+	pcaMaxes.resize(eigenvectors.size());
+	for (size_t i = 0; i < eigenvectors.size(); i++) {
+		pcaMins[i] = 99999.0f;
+		pcaMaxes[i] = -99999.0f;
+	}
+	for (size_t i = 0; i < origData.size(); i++) {
+		for (size_t j = 0; j < eigenvectors.size(); j++) {
+			float proj = 0.0f;
+			for (size_t k = 0; k < numDims; k++) {
+				proj += origData[i][k] * eigenvectors[j][k];
+			}
+			if (proj < pcaMins[j])
+				pcaMins[j] = proj;
+			if (proj > pcaMaxes[j])
+				pcaMaxes[j] = proj;
+		}
+	}
+
+	for (size_t i = 0; i < eigenvectors.size(); i++) {
+		pcaweights << pcaMins[i] << " ";
+	}
+	pcaweights << std::endl;
+
+	for (size_t i = 0; i < eigenvectors.size(); i++) {
+		pcaweights << pcaMaxes[i] << " ";
+	}
+	pcaweights << std::endl;
 
 	for (size_t i = 0; i < eigenvectors.size(); i++) {
 		for (size_t j = 0; j < numDims; j++) {
@@ -329,8 +367,11 @@ std::vector<float> computeMaxEigenVector(std::vector<std::vector<float>> covar) 
 	return eigen;
 }
 
-std::vector<std::vector<float>> loadPCAWeights(std::vector<float>* means) {
+std::vector<std::vector<float>> loadPCAWeights(std::vector<float>* means, std::vector<float>* PCAMins, std::vector<float>* PCAMaxes) {
 	means->resize(numDims);
+	size_t numPCA = std::min(numPCAVectors, numDims);
+	PCAMins->resize(numPCA);
+	PCAMaxes->resize(numPCA);
 	std::stringstream wss;
 	wss << datastring << PCAWeights;
 	std::ifstream weightin(wss.str().c_str());
@@ -342,6 +383,24 @@ std::vector<std::vector<float>> loadPCAWeights(std::vector<float>* means) {
 			float mean;
 			lss >> mean;
 			(*means)[i] = mean;
+		}
+	}
+
+	if (getline(weightin, line)) {
+		std::stringstream lss(line);
+		for (size_t i = 0; i < numPCA; i++) {
+			float pcaMin;
+			lss >> pcaMin;
+			(*PCAMins)[i] = pcaMin;
+		}
+	}
+
+	if (getline(weightin, line)) {
+		std::stringstream lss(line);
+		for (size_t i = 0; i < numPCA; i++) {
+			float pcaMax;
+			lss >> pcaMax;
+			(*PCAMaxes)[i] = pcaMax;
 		}
 	}
 
@@ -359,7 +418,7 @@ std::vector<std::vector<float>> loadPCAWeights(std::vector<float>* means) {
 	return weights;
 }
 
-void savePCA(std::vector<std::vector<float>> data, std::vector<std::vector<float>> eigenvectors, std::vector<float> correct, std::vector<float> means) {
+void savePCA(std::vector<std::vector<float>> data, std::vector<std::vector<float>> eigenvectors, std::vector<float> correct, std::vector<float> means, std::vector<float> PCAMins, std::vector<float> PCAMaxes) {
 	std::stringstream pcass;
 	pcass << datastring << pcastring;
 	std::ofstream pcaout(pcass.str().c_str());
@@ -375,6 +434,12 @@ void savePCA(std::vector<std::vector<float>> data, std::vector<std::vector<float
 			float proj = 0.0f;
 			for (size_t k = 0; k < numDims; k++) {
 				proj += data[i][k] * eigenvectors[j][k];
+			}
+			if (PCANormalize) {
+				if (PCAMaxes[j] - PCAMins[j] != 0)
+					proj = 2.0f*(proj - PCAMins[j]) / (PCAMaxes[j] - PCAMins[j]) - 1.0f;
+				else
+					proj = 0.0f;
 			}
 			pcaout << proj << " ";
 		}
