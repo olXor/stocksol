@@ -29,7 +29,7 @@ size_t testNumIOs = 0;
 bool testUseSampleFile = false;
 bool discardSamples = false;
 
-void loadLocalParameters();
+void loadLocalParameters(std::string parName);
 
 size_t numSubnets = 1;
 size_t minSubnetSelect = 1;	//the number of subnets that need to return a positive result to select
@@ -65,8 +65,13 @@ int main() {
 		exit(0);
 	checkCudaErrors(cudaSetDeviceFlags(cudaDeviceMapHost));
 
+#ifdef LOCAL
+	loadLocalParameters("pars.cfg");
 	loadParameters("pars.cfg");
-	loadLocalParameters();
+#else
+	loadLocalParameters("../stockproj/pars.cfg");
+	loadParameters("../stockproj/pars.cfg");
+#endif
 
 	setStrings(datastring, savestring);
 
@@ -80,7 +85,7 @@ int main() {
 			initializeLayers(&longsubnets[i]);
 
 			std::stringstream wss;
-			wss << "long" << savename << i + 1;
+			wss << savename << "long" << i + 1;
 			if (!loadWeights(longsubnets[i], wss.str().c_str())) {
 				std::cout << "couldn't find long weights file #" << i + 1 << std::endl;
 #ifdef LOCAL
@@ -94,7 +99,7 @@ int main() {
 			initializeLayers(&shortsubnets[i]);
 
 			std::stringstream wss;
-			wss << "short" << savename << i + 1;
+			wss << savename << "short" << i + 1;
 			if (!loadWeights(shortsubnets[i], wss.str().c_str())) {
 				std::cout << "couldn't find short weights file #" << i + 1 << std::endl;
 #ifdef LOCAL
@@ -293,7 +298,7 @@ float evaluateSelectionCriteria(SelectionCriteria crit, bool print) {
 	else if (selectionEvaluationType == 2 && numLongTrades + numShortTrades != 0)
 		evaluation = (longProfit + shortProfit) / (numLongTrades + numShortTrades);
 	else if (selectionEvaluationType == 3 && numLongTrades + numShortTrades != 0)
-		evaluation = (longProfit + shortProfit)*fabs(longProfit + shortProfit) / sqrt(numLongTrades + numShortTrades)/10.0f;
+		evaluation = (float)(longProfit + shortProfit)*fabs(longProfit + shortProfit) / sqrt(numLongTrades + numShortTrades)/10.0f;
 	else
 		evaluation = 0.0f;
 
@@ -303,8 +308,8 @@ float evaluateSelectionCriteria(SelectionCriteria crit, bool print) {
 	return evaluation;
 }
 
-void loadLocalParameters() {
-	std::ifstream infile("pars.cfg");
+void loadLocalParameters(std::string parName) {
+	std::ifstream infile(parName.c_str());
 	std::string line;
 	while (getline(infile, line)) {
 		std::stringstream lss(line);
