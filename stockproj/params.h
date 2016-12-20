@@ -21,7 +21,7 @@ extern size_t NUM_INPUTS;
 
 #define STEPFACTOR 1e-4f
 
-//#define LOCAL
+#define LOCAL
 
 extern float INITIAL_OUTPUT_AVERAGE;
 
@@ -48,4 +48,5 @@ extern std::vector<float> oppositeSelectBinMaxes;
 #define BIN_POSITIVE_OUTPUT 100.0f
 #define BIN_NEGATIVE_OUTPUT 0.0f
 
+#define INTERVALS_PER_DATASET 100
 #endif

@@ -1389,7 +1389,7 @@ float testSim(LayerCollection layers, std::string ofname) {
 	return error;
 }
 
-float sampleTestSim(LayerCollection layers, std::string ofname, bool testPrintSampleAll) {
+float sampleTestSim(LayerCollection layers, std::ofstream* outfile, bool testPrintSampleAll) {
 	float* d_inputs;
 	if (layers.numConvolutions > 0) {
 		if (layers.convPars[0].numInputLocs != NUM_INPUTS || layers.convPars[0].numInputNeurons != 1)
@@ -1426,10 +1426,6 @@ float sampleTestSim(LayerCollection layers, std::string ofname, bool testPrintSa
 	size_t avgClose = 0;
 	size_t binClose = 0;
 	size_t squareClose = 0;
-
-	std::ofstream outfile;
-	if (ofname != "")
-		outfile.open(ofname);
 
 	disableDropout();
 	generateDropoutMask(&layers);
@@ -1508,8 +1504,8 @@ float sampleTestSim(LayerCollection layers, std::string ofname, bool testPrintSa
 					else
 						error += binWidth*(bestBin - correctBin);
 				}
-				if (outfile.is_open()) {
-					outfile << currentSample << " " << correctoutput << " " << binRes << " " << avgRes << " " << squareRes << std::endl;
+				if (outfile->is_open()) {
+					(*outfile) << currentSample << " " << correctoutput << " " << binRes << " " << avgRes << " " << squareRes << std::endl;
 				}
 
 				for (size_t j = 0; j < numBins; j++) {
@@ -1524,19 +1520,19 @@ float sampleTestSim(LayerCollection layers, std::string ofname, bool testPrintSa
 				for (size_t j = 0; j < sampleoutputs.size(); j++) {
 					if (testPrintSampleAll) {
 						std::cout << "   Sample " << currentSample << "| Actual: " << trainset[i].correctoutput << " Measured: " << sampleoutputs[j] << " Error: " << sampleoutputs[j] - trainset[i].correctoutput;
-						outfile << "   Sample " << currentSample << "| Actual: " << trainset[i].correctoutput << " Measured: " << sampleoutputs[j] << " Error: " << sampleoutputs[j] - trainset[i].correctoutput;
+						(*outfile) << "   Sample " << currentSample << "| Actual: " << trainset[i].correctoutput << " Measured: " << sampleoutputs[j] << " Error: " << sampleoutputs[j] - trainset[i].correctoutput;
 					}
 					if (fabs(sampleoutputs[j] - origmean) > origdev) {
 						sampleoutputs.erase(sampleoutputs.begin() + j);
 						j--;
 						if (testPrintSampleAll) {
 							std::cout << " DISCARDED";
-							outfile << " DISCARDED";
+							(*outfile) << " DISCARDED";
 						}
 					}
 					if (testPrintSampleAll) {
 						std::cout << std::endl;
-						outfile << std::endl;
+						(*outfile) << std::endl;
 					}
 				}
 				float newmean = mean(sampleoutputs);
@@ -1546,8 +1542,8 @@ float sampleTestSim(LayerCollection layers, std::string ofname, bool testPrintSa
 				error += fabs(newerror);
 
 				std::cout << "Sample " << currentSample << "| Actual: " << correct << " Measured: " << newmean << " +/- " << newstdev << " Error: " << newerror << std::endl;
-				if (outfile.is_open()) {
-					outfile << currentSample << " " << correct << " " << newmean << " " << newstdev << " " << newerror << std::endl;
+				if ((*outfile).is_open()) {
+					(*outfile) << currentSample << " " << correct << " " << newmean << " " << newstdev << " " << newerror << std::endl;
 				}
 
 				sampleoutputs.clear();
@@ -1748,7 +1744,7 @@ bool discardInput(float* inputs) {
 }
 
 //if overrideBinningSwitch is true, ignores the binnedOutput flag and always uses exact goal
-void sampleReadTrainSet(std::string learnsetname, bool discard, size_t* numDiscards, bool overrideBinningSwitch, bool runOnTestSet) {
+void sampleReadTrainSet(std::string learnsetname, bool discard, size_t* numDiscards, bool overrideBinningSwitch, bool runOnTestSet, size_t startingSample) {
 	std::vector<IOPair>* dataset;
 	if (runOnTestSet)
 		dataset = &testset;
@@ -1766,6 +1762,12 @@ void sampleReadTrainSet(std::string learnsetname, bool discard, size_t* numDisca
 	std::ifstream learnset(learnsetss.str().c_str());
 	std::string line;
 	while (getline(learnset, line)) {
+		if (samplenum < startingSample) {
+			samplenum++;
+			continue;
+		}
+		else if (INTERVALS_PER_DATASET > 0 && samplenum >= startingSample + INTERVALS_PER_DATASET)
+			break;
 		std::stringstream lss(line);
 		std::string fname;
 		int column;
@@ -1846,6 +1848,7 @@ void sampleReadTrainSet(std::string learnsetname, bool discard, size_t* numDisca
 		}
 		samplenum++;
 	}
+	learnset.close();
 }
 
 float calculateSingleOutput(LayerCollection layers, std::vector<float> inputs) {

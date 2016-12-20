@@ -43,6 +43,7 @@ bool shortSelection = false;
 bool randomizeSelectOptimizationStartPoint = true;
 
 size_t selectionEvaluationType = 0;
+float selectionEvaluationProfitPower = 2.0f;
 
 float selectPerturbSigma = 2.0f;
 
@@ -192,8 +193,8 @@ void generateSubnetResults() {
 	for (size_t i = 0; i < dataset->size(); i++) {
 		for (size_t j = 0; j < 2 * numSubnets; j++) {
 			LayerCollection layers;
-			size_t subnetPos = i % numSubnets;
-			if (i < numSubnets)
+			size_t subnetPos = j % numSubnets;
+			if (j < numSubnets)
 				layers = longsubnets[subnetPos];
 			else
 				layers = shortsubnets[subnetPos];
@@ -205,11 +206,11 @@ void generateSubnetResults() {
 			checkCudaErrors(cudaMemcpyAsync(layers.correctoutput, &(*dataset)[i].correctbins[0], numBins*sizeof(float), cudaMemcpyHostToDevice, mainStream));
 
 			calculateOutputError << <1, numBins, 0, mainStream >> >(layers.d_fixedMat[layers.numFixedNets - 1], layers.stepfactor, layers.correctoutput, d_output[j]);
-			checkCudaErrors(cudaPeekAtLastError());
-
+		}
+		checkCudaErrors(cudaDeviceSynchronize());
+		for (size_t j = 0; j < 2 * numSubnets; j++)
 			for (size_t k = 0; k < numBins; k++)
 				subnetResults[i][j][k] = h_output[j][k];
-		}
 	}
 }
 
@@ -291,16 +292,25 @@ float evaluateSelectionCriteria(SelectionCriteria crit, bool print) {
 	}
 
 	float evaluation = 0.0f;
+	float totalProfit = longProfit + shortProfit;
+	size_t totalTrades = numLongTrades + numShortTrades;
+	if (totalTrades != 0) {
+		evaluation = (totalProfit) / fabs(totalProfit)*pow(totalProfit, selectionEvaluationProfitPower) / totalTrades;
+	}
+	/*
 	if (selectionEvaluationType == 0)
-		evaluation = longProfit + shortProfit;
+		evaluation = totalProfit;
 	else if (selectionEvaluationType == 1 && numLongTrades + numShortTrades != 0)
-		evaluation = (longProfit + shortProfit)*fabs(longProfit + shortProfit) / (numLongTrades + numShortTrades);
+		evaluation = totalProfit / totalTrades;
 	else if (selectionEvaluationType == 2 && numLongTrades + numShortTrades != 0)
-		evaluation = (longProfit + shortProfit) / (numLongTrades + numShortTrades);
+		evaluation = (float)(totalProfit*sqrt(fabs(totalProfit)) / totalTrades);
 	else if (selectionEvaluationType == 3 && numLongTrades + numShortTrades != 0)
-		evaluation = (float)(longProfit + shortProfit)*fabs(longProfit + shortProfit) / sqrt(numLongTrades + numShortTrades)/10.0f;
+		evaluation = totalProfit*fabs(totalProfit) / totalTrades;
+	else if (selectionEvaluationType == 4 && numLongTrades + numShortTrades != 0)
+		evaluation = (float)(totalProfit*fabs(totalProfit) / sqrt(totalTrades)/10.0f);
 	else
 		evaluation = 0.0f;
+		*/
 
 	if (print)
 		std::cout << "Evaluation: " << evaluation << std::endl;
@@ -370,6 +380,8 @@ void loadLocalParameters(std::string parName) {
 			lss >> selecttestfile;
 		else if (var == "selectionEvaluationType")
 			lss >> selectionEvaluationType;
+		else if (var == "selectionEvaluationProfitPower")
+			lss >> selectionEvaluationProfitPower;
 		else if (var == "selectPerturbSigma")
 			lss >> selectPerturbSigma;
 	}

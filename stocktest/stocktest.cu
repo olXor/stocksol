@@ -96,8 +96,26 @@ int main() {
 				error = runPairedSim(pairedLayers, false, 0, 0, testPrint, testPairsAveraged);
 		}
 		else {
-			if (testUseSampleFile)
-				error = sampleTestSim(layers, testOutputFile, testPrintSampleAll);
+			if (testUseSampleFile) {
+				std::ofstream outfile;
+				if (testOutputFile != "")
+					outfile.open(testOutputFile);
+				if (INTERVALS_PER_DATASET == 0)
+					error = sampleTestSim(layers, &outfile, testPrintSampleAll);
+				else {
+					error = 0.0f;
+					size_t numErrorBlocks = 0;
+					size_t intervalNum = testBegin;
+					size_t numLoaded = 0;
+					do {
+						error += sampleTestSim(layers, &outfile, testPrintSampleAll);
+						numErrorBlocks++;
+						intervalNum += INTERVALS_PER_DATASET;
+						numLoaded = readData(intervalNum, 0);
+					} while (numLoaded != 0);
+					error /= numErrorBlocks;
+				}
+			}
 			else
 				error = runSim(layers, false, 0, 0, testPrint);
 		}
@@ -147,11 +165,14 @@ size_t readData(size_t begin, size_t numIOs) {
 		return numSamples;
 	}
 	else {
-		std::cout << "Reading trainset: ";
+		if (INTERVALS_PER_DATASET > 0)
+			std::cout << "Reading " << INTERVALS_PER_DATASET << " intervals from trainset starting at " << begin << ": ";
+		else
+			std::cout << "Reading trainset: ";
 		auto readstart = std::chrono::high_resolution_clock::now();
 		size_t numDiscards[2];
 
-		sampleReadTrainSet(testfile, discardSamples, numDiscards);
+		sampleReadTrainSet(testfile, discardSamples, numDiscards, false, false, begin);
 
 		auto readelapsed = std::chrono::high_resolution_clock::now() - readstart;
 		long long readtime = std::chrono::duration_cast<std::chrono::microseconds>(readelapsed).count();
