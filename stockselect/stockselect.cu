@@ -42,6 +42,9 @@ bool longSelection = true;
 bool shortSelection = false;
 bool randomizeSelectOptimizationStartPoint = true;
 
+bool selectBasedOnMaxBin = false;
+size_t binToSelectOn = 0;
+
 size_t selectionEvaluationType = 0;
 float selectionEvaluationProfitPower = 2.0f;
 
@@ -56,6 +59,7 @@ void saveSelectionCriteria(SelectionCriteria crit);
 bool loadSelectionCriteria(SelectionCriteria* crit);
 void printSelectionCriteria(SelectionCriteria crit);
 void generateSubnetResults();
+void evaluateMaxBinSelection(size_t bin, size_t numSubnetsToSelect, bool print);
 
 int main() {
 	srand((size_t)time(NULL));
@@ -132,19 +136,27 @@ int main() {
 	long long gentime = std::chrono::duration_cast<std::chrono::microseconds>(genelapsed).count();
 	std::cout << " (" << gentime / 1000000 << " s)" << std::endl;
 
-	float currentBest = -999999.0f;
-	SelectionCriteria testCrit = currentCrit;
-	while (true) {
-		float testEval = evaluateSelectionCriteria(testCrit, false);
-
-		if (testEval > currentBest || currentBest == -999999.0f) {
-			currentBest = testEval;
-			currentCrit = testCrit;
-			printSelectionCriteria(currentCrit);
-			evaluateSelectionCriteria(currentCrit, true);
-			saveSelectionCriteria(currentCrit);
+	if (selectBasedOnMaxBin) {
+		std::cout << "Printing results by required number of agreeing bins." << std::endl;
+		for (size_t i = 0; i < numBins; i++) {
+			evaluateMaxBinSelection(binToSelectOn, i, true);
 		}
-		testCrit = perturbSelectionCriteria(currentCrit);
+	}
+	else {
+		float currentBest = -999999.0f;
+		SelectionCriteria testCrit = currentCrit;
+		while (true) {
+			float testEval = evaluateSelectionCriteria(testCrit, false);
+
+			if (testEval > currentBest || currentBest == -999999.0f) {
+				currentBest = testEval;
+				currentCrit = testCrit;
+				printSelectionCriteria(currentCrit);
+				evaluateSelectionCriteria(currentCrit, true);
+				saveSelectionCriteria(currentCrit);
+			}
+			testCrit = perturbSelectionCriteria(currentCrit);
+		}
 	}
 }
 
@@ -297,20 +309,6 @@ float evaluateSelectionCriteria(SelectionCriteria crit, bool print) {
 	if (totalTrades != 0) {
 		evaluation = (totalProfit) / fabs(totalProfit)*pow(totalProfit, selectionEvaluationProfitPower) / totalTrades;
 	}
-	/*
-	if (selectionEvaluationType == 0)
-		evaluation = totalProfit;
-	else if (selectionEvaluationType == 1 && numLongTrades + numShortTrades != 0)
-		evaluation = totalProfit / totalTrades;
-	else if (selectionEvaluationType == 2 && numLongTrades + numShortTrades != 0)
-		evaluation = (float)(totalProfit*sqrt(fabs(totalProfit)) / totalTrades);
-	else if (selectionEvaluationType == 3 && numLongTrades + numShortTrades != 0)
-		evaluation = totalProfit*fabs(totalProfit) / totalTrades;
-	else if (selectionEvaluationType == 4 && numLongTrades + numShortTrades != 0)
-		evaluation = (float)(totalProfit*fabs(totalProfit) / sqrt(totalTrades)/10.0f);
-	else
-		evaluation = 0.0f;
-		*/
 
 	if (print)
 		std::cout << "Evaluation: " << evaluation << std::endl;
@@ -384,10 +382,14 @@ void loadLocalParameters(std::string parName) {
 			lss >> selectionEvaluationProfitPower;
 		else if (var == "selectPerturbSigma")
 			lss >> selectPerturbSigma;
+		else if (var == "selectBasedOnMaxBin")
+			lss >> selectBasedOnMaxBin;
+		else if (var == "binToSelectOn")
+			lss >> binToSelectOn;
 	}
 }
 
-//Because I am very very lazy, the long set is stored in "trainset" and the short in "test set"
+//long outputs are stored in "correctoutput" and short in "secondaryoutput"
 size_t readData(size_t begin, size_t numIOs) {
 	if (numIOs > 0)
 		std::cout << "Reading " << numIOs << " samples from data set: ";
@@ -532,4 +534,78 @@ bool loadSelectionCriteria(SelectionCriteria* crit) {
 		iss >> crit->oppositeSelectBinMaxes[i];
 	}
 	return true;
+}
+
+//don't do opposite selecting right now
+void evaluateMaxBinSelection(size_t bin, size_t numSubnetsToSelect, bool print) {
+	std::vector<IOPair>* dataset = getTrainSet();
+	float longProfit = 0.0f;
+	float shortProfit = 0.0f;
+	size_t numLongTrades = 0;
+	size_t numShortTrades = 0;
+	std::vector<size_t> longDist(numBins);
+	std::vector<size_t> shortDist(numBins);
+	for (size_t i = 0; i < subnetResults.size(); i++) {
+		size_t numLongTestSelected = 0;
+		size_t numShortTestSelected = 0;
+		for (size_t j = 0; j < 2 * numSubnets; j++) {
+			float maxBinWeight = 0.0f;
+			size_t maxBin = 0;
+			for (size_t k = 0; k < numBins; k++) {
+				if (subnetResults[i][j][k] > maxBinWeight) {
+					maxBinWeight = subnetResults[i][j][k];
+					maxBin = k;
+				}
+			}
+
+			if (j < numSubnets) { //LONG
+				if (maxBinWeight > 0.0f && maxBin == bin)
+					numLongTestSelected++;
+			}
+			else {
+				if (maxBinWeight > 0.0f && maxBin == bin)
+					numShortTestSelected++;
+			}
+		}
+		if (numLongTestSelected >= numSubnetsToSelect) {
+			longProfit += (*dataset)[i].correctoutput;
+			numLongTrades++;
+			size_t binPos = 0;
+			for (size_t j = 0; j < numBins; j++) {
+				if ((*dataset)[i].correctbins[j] == BIN_POSITIVE_OUTPUT) {
+					binPos = j;
+					break;
+				}
+			}
+			longDist[binPos]++;
+		}
+		if (numShortTestSelected >= numSubnetsToSelect) {
+			shortProfit += (*dataset)[i].secondaryoutput;
+			numShortTrades++;
+			size_t binPos = 0;
+			for (size_t j = 0; j < numBins; j++) {
+				if ((*dataset)[i].secondarybins[j] == BIN_POSITIVE_OUTPUT) {
+					binPos = j;
+					break;
+				}
+			}
+			shortDist[binPos]++;
+		}
+	}
+
+	if (print) {
+		std::cout << "Bin #" << bin << " with " << numSubnetsToSelect << " nets required. ";
+		std::cout << "Profits: L: " << longProfit << " (/" << numLongTrades << "=" << longProfit / numLongTrades << ") S: " << shortProfit << " (/" << numShortTrades << "=" << shortProfit / numShortTrades << ")" << " Total: " << longProfit + shortProfit << " (/" << numLongTrades + numShortTrades << "=" << (longProfit + shortProfit) / (numLongTrades + numShortTrades) << ")" << std::endl;
+		std::cout << "Long Trade Distribution: ";
+		for (size_t i = 0; i < numBins; i++) {
+			std::cout << longDist[i] << " ";
+		}
+		std::cout << std::endl;
+
+		std::cout << "Short Trade Distribution: ";
+		for (size_t i = 0; i < numBins; i++) {
+			std::cout << shortDist[i] << " ";
+		}
+		std::cout << std::endl;
+	}
 }

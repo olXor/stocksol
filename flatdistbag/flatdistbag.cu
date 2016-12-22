@@ -17,15 +17,15 @@ void loadLocalParameters(std::string parName);
 int main() {
 	srand((size_t)time(NULL));
 #ifdef LOCAL
-	loadLocalParameters("pars.cfg");
 	loadParameters("pars.cfg");
+	loadLocalParameters("pars.cfg");
 #else
-	loadLocalParameters("../stockproj/pars.cfg");
 	loadParameters("../stockproj/pars.cfg");
+	loadLocalParameters("../stockproj/pars.cfg");
 #endif
 	setStrings(datastring, savestring);
 
-	std::cout << "Reading all samples from trainset: ";
+	std::cout << "Reading all samples from trainset " << randtrainstring << ": ";
 
 	auto readstart = std::chrono::high_resolution_clock::now();
 	size_t totalSamples = readExplicitTrainSet(randtrainstring, 1, 0);

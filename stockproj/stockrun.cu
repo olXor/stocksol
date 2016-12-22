@@ -1744,7 +1744,7 @@ bool discardInput(float* inputs) {
 }
 
 //if overrideBinningSwitch is true, ignores the binnedOutput flag and always uses exact goal
-void sampleReadTrainSet(std::string learnsetname, bool discard, size_t* numDiscards, bool overrideBinningSwitch, bool runOnTestSet, size_t startingSample) {
+void sampleReadTrainSet(std::string learnsetname, bool discard, size_t* numDiscards, bool overrideBinningSwitch, bool runOnTestSet, size_t startingSample, bool readInBlocks) {
 	std::vector<IOPair>* dataset;
 	if (runOnTestSet)
 		dataset = &testset;
@@ -1766,7 +1766,7 @@ void sampleReadTrainSet(std::string learnsetname, bool discard, size_t* numDisca
 			samplenum++;
 			continue;
 		}
-		else if (INTERVALS_PER_DATASET > 0 && samplenum >= startingSample + INTERVALS_PER_DATASET)
+		else if (readInBlocks && INTERVALS_PER_DATASET > 0 && samplenum >= startingSample + INTERVALS_PER_DATASET)
 			break;
 		std::stringstream lss(line);
 		std::string fname;

@@ -142,9 +142,9 @@ size_t readData(size_t begin, size_t numIOs) {
 	size_t numSamples;
 	if (!testUseSampleFile) {
 		if (numIOs > 0)
-			std::cout << "Reading " << numIOs << " samples from trainset: ";
+			std::cout << "Reading " << numIOs << " samples from trainset " << testfile << ": ";
 		else
-			std::cout << "Reading all samples from trainset: ";
+			std::cout << "Reading all samples from trainset " << testfile << ": ";
 
 		auto readstart = std::chrono::high_resolution_clock::now();
 		size_t totalSamples;
@@ -172,7 +172,7 @@ size_t readData(size_t begin, size_t numIOs) {
 		auto readstart = std::chrono::high_resolution_clock::now();
 		size_t numDiscards[2];
 
-		sampleReadTrainSet(testfile, discardSamples, numDiscards, false, false, begin);
+		sampleReadTrainSet(testfile, discardSamples, numDiscards, false, false, begin, true);
 
 		auto readelapsed = std::chrono::high_resolution_clock::now() - readstart;
 		long long readtime = std::chrono::duration_cast<std::chrono::microseconds>(readelapsed).count();

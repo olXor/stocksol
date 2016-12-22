@@ -12,6 +12,8 @@
 bool testUseSampleFile = false;
 bool discardSamples = false;
 
+bool ranTrainUseSampleFile = false;
+
 bool createRandomizedExplicitTrainSetFile = true;
 
 void loadLocalParameters(std::string parName);
@@ -28,8 +30,8 @@ int main() {
 #endif
 
 	size_t numSamples;
-	std::cout << "Reading trainset: ";
-	if (testUseSampleFile) {
+	std::cout << "Reading trainset " << trainstring << ": ";
+	if (ranTrainUseSampleFile) {
 		auto readstart = std::chrono::high_resolution_clock::now();
 		size_t numDiscards[2];
 
@@ -78,5 +80,7 @@ void loadLocalParameters(std::string parName) {
 			lss >> discardSamples;
 		else if (var == "createRandomizedExplicitTrainSetFile")
 			lss >> createRandomizedExplicitTrainSetFile;
+		else if (var == "ranTrainUseSampleFile")
+			lss >> ranTrainUseSampleFile;
 	}
 }

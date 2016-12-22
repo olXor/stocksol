@@ -66,10 +66,12 @@ float minTestError = 9999999.0f;
 
 bool trainStockBAGSet = false;
 size_t trainBAGSubnetNum = 1;
+bool addBagTradeSuffix = false;
 
 size_t numRunsOnFullTrainset = 0;
 float fullTrainsetErrorGoal = 0.0f;
 size_t numRunsToStallRestart = 0;
+float stallRestartThreshold = 0.0f;
 
 void moveSaveToStallBackup();
 
@@ -109,32 +111,55 @@ int main() {
 
 	setStrings(datastring, savestring);
 
+	loadParameters("pars.cfg");
+	loadLocalParameters();
+
+	size_t numBagSubnets = 1;
+	if (trainStockBAGSet) {
+		if (addBagTradeSuffix)
+			numBagSubnets = 2 * trainBAGSubnetNum;
+		else
+			numBagSubnets = trainBAGSubnetNum;
+	}
 	//break out of the loop after one iteration if trainStockBAGSet = false
-	for (size_t bagNum = 0; bagNum < 2 * trainBAGSubnetNum; bagNum++) {
+	for (size_t bagNum = 0; bagNum < numBagSubnets; bagNum++) {
 		stepAdjustment = 1.0f;
 		loadParameters("pars.cfg");
 		loadLocalParameters();
 		if (trainStockBAGSet) {
-			if (bagNum % 2 == 0) {
-				std::stringstream savess;
-				savess << savename << "long" << bagNum / 2 + 1;
-				savename = savess.str();
-				std::stringstream rantrainss;
-				rantrainss << randtrainstring << "long" << bagNum / 2 + 1;
-				randtrainstring = rantrainss.str();
-				std::stringstream testss;
-				testss << testfile << "long" << bagNum / 2 + 1;
-				testfile = testss.str();
+			if (addBagTradeSuffix) {
+				if (bagNum % 2 == 0) {
+					std::stringstream savess;
+					savess << savename << "long" << bagNum / 2 + 1;
+					savename = savess.str();
+					std::stringstream rantrainss;
+					rantrainss << randtrainstring << "long" << bagNum / 2 + 1;
+					randtrainstring = rantrainss.str();
+					std::stringstream testss;
+					testss << testfile << "long" << bagNum / 2 + 1;
+					testfile = testss.str();
+				}
+				else {
+					std::stringstream savess;
+					savess << savename << "short" << bagNum / 2 + 1;
+					savename = savess.str();
+					std::stringstream rantrainss;
+					rantrainss << randtrainstring << "short" << bagNum / 2 + 1;
+					randtrainstring = rantrainss.str();
+					std::stringstream testss;
+					testss << testfile << "short" << bagNum / 2 + 1;
+					testfile = testss.str();
+				}
 			}
 			else {
 				std::stringstream savess;
-				savess << savename << "short" << bagNum / 2 + 1;
+				savess << savename  << bagNum + 1;
 				savename = savess.str();
 				std::stringstream rantrainss;
-				rantrainss << randtrainstring << "short" << bagNum / 2 + 1;
+				rantrainss << randtrainstring << bagNum + 1;
 				randtrainstring = rantrainss.str();
 				std::stringstream testss;
-				testss << testfile << "short" << bagNum / 2 + 1;
+				testss << testfile << bagNum + 1;
 				testfile = testss.str();
 			}
 			std::cout << std::endl << "Beginning run on " << savename << std::endl;
@@ -229,7 +254,7 @@ int main() {
 				std::cout << "Run completed after " << numRuns - numRunSetStart << " rounds on full trainset" << std::endl;
 				break;
 			}
-			if (trainSamples == totalSamples && numRunsToStallRestart > 0 && numRuns - numRunSetStart >= numRunsToStallRestart) {
+			if (trainSamples == totalSamples && numRunsToStallRestart > 0 && numRuns - numRunSetStart >= numRunsToStallRestart && (stallRestartThreshold == 0 || lastErrors.back() > stallRestartThreshold)) {
 				std::cout << "Passed stall threshold after " << numRuns - numRunSetStart << " rounds, restarting with new weights." << std::endl;
 				moveSaveToStallBackup();
 				bagNum--;
@@ -442,14 +467,16 @@ void saveSimVariables() {
 
 size_t readData(size_t begin, size_t numIOs, bool readTestSet) {
 	if (numIOs > 0)
-		std::cout << "Reading " << numIOs << " samples from trainset: ";
+		std::cout << "Reading " << numIOs << " samples from trainset ";
 	else
-		std::cout << "Reading all samples from trainset: ";
+		std::cout << "Reading all samples from trainset ";
 
 	auto readstart = std::chrono::high_resolution_clock::now();
 #ifndef RAND_EXPLICIT
+	std::cout << trainstring << ": ";
 	totalSamples = readTrainSet(trainstring, begin, numIOs);
 #else
+	std::cout << randtrainstring << ": ";
 	totalSamples = readExplicitTrainSet(randtrainstring, begin, numIOs);
 #endif
 	auto readelapsed = std::chrono::high_resolution_clock::now() - readstart;
@@ -463,7 +490,7 @@ size_t readData(size_t begin, size_t numIOs, bool readTestSet) {
 	std::cout << numSamples << "/" << totalSamples << " samples loaded" << std::endl;
 
 	if (readTestSet) {
-		std::cout << "Reading all samples from testset: ";
+		std::cout << "Reading all samples from testset " << testfile << ": ";
 
 		auto readstart = std::chrono::high_resolution_clock::now();
 		size_t testSamples;
@@ -560,6 +587,10 @@ void loadLocalParameters() {
 			lss >> testMinErrorType;
 		else if (var == "numRunsToStallRestart")
 			lss >> numRunsToStallRestart;
+		else if (var == "stallRestartThreshold")
+			lss >> stallRestartThreshold;
+		else if (var == "addBagTradeSuffix")
+			lss >> addBagTradeSuffix;
 	}
 }
 
