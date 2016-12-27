@@ -91,6 +91,7 @@ int main() {
 
 			std::stringstream wss;
 			wss << savename << "long" << i + 1;
+			std::cout << "Loading subnet " << wss.str().c_str() << std::endl;
 			if (!loadWeights(longsubnets[i], wss.str().c_str())) {
 				std::cout << "couldn't find long weights file #" << i + 1 << std::endl;
 #ifdef LOCAL
@@ -105,6 +106,7 @@ int main() {
 
 			std::stringstream wss;
 			wss << savename << "short" << i + 1;
+			std::cout << "Loading subnet " << wss.str().c_str() << std::endl;
 			if (!loadWeights(shortsubnets[i], wss.str().c_str())) {
 				std::cout << "couldn't find short weights file #" << i + 1 << std::endl;
 #ifdef LOCAL
@@ -138,7 +140,7 @@ int main() {
 
 	if (selectBasedOnMaxBin) {
 		std::cout << "Printing results by required number of agreeing bins." << std::endl;
-		for (size_t i = 0; i < numBins; i++) {
+		for (size_t i = 0; i <= numSubnets; i++) {
 			evaluateMaxBinSelection(binToSelectOn, i, true);
 		}
 	}
@@ -158,6 +160,10 @@ int main() {
 			testCrit = perturbSelectionCriteria(currentCrit);
 		}
 	}
+
+#ifdef LOCAL
+	system("pause");
+#endif
 }
 
 void generateSubnetResults() {

@@ -63,6 +63,7 @@ bool discardSamples = false;
 
 bool backupMinTestError = true;
 float minTestError = 9999999.0f;
+bool backupMinTestErrorSample = true;
 
 bool trainStockBAGSet = false;
 size_t trainBAGSubnetNum = 1;
@@ -72,6 +73,9 @@ size_t numRunsOnFullTrainset = 0;
 float fullTrainsetErrorGoal = 0.0f;
 size_t numRunsToStallRestart = 0;
 float stallRestartThreshold = 0.0f;
+float minTestErrorStallRestartThreshold = 0.0f;
+
+size_t numTrainCrossValSets = 0;
 
 void moveSaveToStallBackup();
 
@@ -121,289 +125,350 @@ int main() {
 		else
 			numBagSubnets = trainBAGSubnetNum;
 	}
+	bool skipDataSetLoad = false;
 	//break out of the loop after one iteration if trainStockBAGSet = false
 	for (size_t bagNum = 0; bagNum < numBagSubnets; bagNum++) {
-		stepAdjustment = 1.0f;
-		loadParameters("pars.cfg");
-		loadLocalParameters();
-		if (trainStockBAGSet) {
-			if (addBagTradeSuffix) {
-				if (bagNum % 2 == 0) {
-					std::stringstream savess;
-					savess << savename << "long" << bagNum / 2 + 1;
-					savename = savess.str();
-					std::stringstream rantrainss;
-					rantrainss << randtrainstring << "long" << bagNum / 2 + 1;
-					randtrainstring = rantrainss.str();
-					std::stringstream testss;
-					testss << testfile << "long" << bagNum / 2 + 1;
-					testfile = testss.str();
+		for (size_t cv = 0; cv < numTrainCrossValSets || numTrainCrossValSets == 0; cv++) {
+			stepAdjustment = 1.0f;
+			loadParameters("pars.cfg");
+			loadLocalParameters();
+			if (trainStockBAGSet) {
+				if (addBagTradeSuffix) {
+					if (bagNum % 2 == 0) {
+						std::stringstream savess;
+						savess << savename << "long";
+						if (numTrainCrossValSets != 0)
+							savess << cv + 1 << "-";
+						savess << bagNum / 2 + 1;
+						savename = savess.str();
+						std::stringstream rantrainss;
+						rantrainss << randtrainstring << "long";
+						if (numTrainCrossValSets != 0)
+							rantrainss << cv + 1 << "-";
+						rantrainss << bagNum / 2 + 1;
+						randtrainstring = rantrainss.str();
+						std::stringstream testss;
+						testss << testfile << "long";
+						if (numTrainCrossValSets != 0)
+							testss << cv + 1 << "-";
+						testss << bagNum / 2 + 1;
+						testfile = testss.str();
+					}
+					else {
+						std::stringstream savess;
+						savess << savename << "short";
+						if (numTrainCrossValSets != 0)
+							savess << cv + 1 << "-";
+						savess << bagNum / 2 + 1;
+						savename = savess.str();
+						std::stringstream rantrainss;
+						rantrainss << randtrainstring << "short";
+						if (numTrainCrossValSets != 0)
+							rantrainss << cv + 1 << "-";
+						rantrainss << bagNum / 2 + 1;
+						randtrainstring = rantrainss.str();
+						std::stringstream testss;
+						testss << testfile << "short";
+						if (numTrainCrossValSets != 0)
+							testss << cv + 1 << "-";
+						testss << bagNum / 2 + 1;
+						testfile = testss.str();
+					}
 				}
 				else {
 					std::stringstream savess;
-					savess << savename << "short" << bagNum / 2 + 1;
+					savess << savename;
+					if (numTrainCrossValSets != 0)
+						savess << cv + 1 << "-";
+					savess << bagNum + 1;
 					savename = savess.str();
 					std::stringstream rantrainss;
-					rantrainss << randtrainstring << "short" << bagNum / 2 + 1;
+					rantrainss << randtrainstring;
+					if (numTrainCrossValSets != 0)
+						rantrainss << cv + 1 << "-";
+					rantrainss << bagNum + 1;
 					randtrainstring = rantrainss.str();
 					std::stringstream testss;
-					testss << testfile << "short" << bagNum / 2 + 1;
+					testss << testfile;
+					if (numTrainCrossValSets != 0)
+						testss << cv + 1 << "-";
+					testss << bagNum + 1;
 					testfile = testss.str();
 				}
+				std::cout << std::endl << "Beginning run on " << savename << std::endl;
+			}
+			numRuns = 0;
+			trainSamples = initialTrainSamples;
+			stepMult = initialStepMult;
+			numRunSetStart = 0;
+			lastErrors.clear();
+			minTestError = 9999999.0f;
+
+			loadSimVariables();
+
+			LayerCollection layers;
+			PairedConvCollection pairedLayers;
+			if (pairedTraining) {
+				pairedLayers = createAndInitializePairedConvCollection(NUM_INPUTS);
+				if (!loadPairedWeights(pairedLayers, savename))
+					savePairedWeights(pairedLayers, savename);
 			}
 			else {
-				std::stringstream savess;
-				savess << savename  << bagNum + 1;
-				savename = savess.str();
-				std::stringstream rantrainss;
-				rantrainss << randtrainstring << bagNum + 1;
-				randtrainstring = rantrainss.str();
-				std::stringstream testss;
-				testss << testfile << bagNum + 1;
-				testfile = testss.str();
+				layers = createLayerCollection(0, getLCType());
+				initializeLayers(&layers);
+				if (!loadWeights(layers, savename))
+					saveWeights(layers, savename);
 			}
-			std::cout << std::endl << "Beginning run on " << savename << std::endl;
-		}
-		numRuns = 0;
-		trainSamples = initialTrainSamples;
-		stepMult = initialStepMult;
-		numRunSetStart = 0;
-		lastErrors.clear();
-		minTestError = 9999999.0f;
 
-		loadSimVariables();
-
-		LayerCollection layers;
-		PairedConvCollection pairedLayers;
-		if (pairedTraining) {
-			pairedLayers = createAndInitializePairedConvCollection(NUM_INPUTS);
-			if (!loadPairedWeights(pairedLayers, savename))
-				savePairedWeights(pairedLayers, savename);
-		}
-		else {
-			layers = createLayerCollection(0, getLCType());
-			initializeLayers(&layers);
-			if (!loadWeights(layers, savename))
-				saveWeights(layers, savename);
-		}
-
-		size_t numSamples;
-		if (randomizeSubsetOnThreshold) {
-			size_t tSamples = readData(1, 0, printTestError);
-			randomizeTrainSet();
-			if (trainSamples != 0)
-				numSamples = min(trainSamples, printTestError);
-			else
-				numSamples = tSamples;
-		}
-		else {
-			numSamples = readData(1, trainSamples, true);
-		}
-		trainSamples = numSamples;
-
-		std::cout << "Calculating initial error: ";
-		float initError;
-		float* initSecError = new float[numSecErrors];
-		for (size_t i = 0; i < numSecErrors; i++)
-			initSecError[i] = 0.0f;
-		float testInitError;
-		float* testInitSecError = new float[numSecErrors];
-		for (size_t i = 0; i < numSecErrors; i++)
-			testInitSecError[i] = 0.0f;
-
-		disableDropout();
-		auto initstart = std::chrono::high_resolution_clock::now();
-		if (pairedTraining)
-			initError = runPairedSim(pairedLayers, false, 0, trainSamples);
-		else {
-			initError = runSim(layers, false, 0, trainSamples, false, initSecError);
-		}
-		if (printTestError && !pairedTraining) {
-			testInitError = runSim(layers, false, 0, 0, false, testInitSecError, true);
-		}
-
-		auto initelapsed = std::chrono::high_resolution_clock::now() - initstart;
-		long long inittime = std::chrono::duration_cast<std::chrono::microseconds>(initelapsed).count();
-
-		std::cout << inittime / 1000000 << " s, Error: " << initError;
-		for (size_t i = 0; i < numSecErrors; i++) {
-			if (initSecError[i] != 0.0f)
-				std::cout << " SE" << i + 1 << ": " << initSecError[i];
-		}
-		if (printTestError && trainSamples >= minTrainSizeToPrintTestError && !pairedTraining) {
-			std::cout << " | Test Error: " << testInitError;
-			for (size_t i = 0; i < numSecErrors; i++) {
-				if (testInitSecError[i] != 0.0f)
-					std::cout << " SE" << i + 1 << ": " << testInitSecError[i];
-			}
-		}
-		std::cout << std::endl;
-
-		float prevPrimaryAfterError;
-		if (primaryErrorType == 0)
-			prevPrimaryAfterError = initError;
-		else
-			prevPrimaryAfterError = initSecError[primaryErrorType - 1];
-		updateLastErrors(prevPrimaryAfterError);
-
-		delete[] initSecError;
-		delete[] testInitSecError;
-
-		while (true) {
-			if (trainSamples == totalSamples && ((numRunsOnFullTrainset != 0 && numRuns - numRunSetStart >= numRunsOnFullTrainset) || (lastErrors.back() <= fullTrainsetErrorGoal))) {
-				std::cout << "Run completed after " << numRuns - numRunSetStart << " rounds on full trainset" << std::endl;
-				break;
-			}
-			if (trainSamples == totalSamples && numRunsToStallRestart > 0 && numRuns - numRunSetStart >= numRunsToStallRestart && (stallRestartThreshold == 0 || lastErrors.back() > stallRestartThreshold)) {
-				std::cout << "Passed stall threshold after " << numRuns - numRunSetStart << " rounds, restarting with new weights." << std::endl;
-				moveSaveToStallBackup();
-				bagNum--;
-				break;
-			}
-			if (pairedTraining)
-				std::cout << nIter << "+1 runs on " << numSamples << " sample pairs";
-			else
-				std::cout << nIter << "+1 runs on " << numSamples << " samples";
-			if (trainSamples >= stepAdjustmentNumStart && redoErrorThreshold > 0.0f) {
-				std::cout << "(SA: " << stepAdjustment << ")";
-			}
-			std::cout << ": ";
-			auto gpustart = std::chrono::high_resolution_clock::now();
-
-			if (randomizeSubsetOnThreshold) {
-				randomizeTrainSet(trainSamples);
-			}
-			else if (randomizeTrainSetEveryRun)
-				randomizeTrainSet();
-
-			enableDropout();
-			for (size_t i = 0; i < nIter; i++) {
-				if (pairedTraining)
-					runPairedSim(pairedLayers, true, stepMultiplier(numRuns), trainSamples);
+			size_t numSamples;
+			if (!skipDataSetLoad) {
+				skipDataSetLoad = false;
+				if (randomizeSubsetOnThreshold) {
+					size_t tSamples = readData(1, 0, printTestError);
+					randomizeTrainSet();
+					if (trainSamples != 0)
+						numSamples = min(trainSamples, printTestError);
+					else
+						numSamples = tSamples;
+				}
 				else {
-					runSim(layers, true, stepMultiplier(numRuns), trainSamples);
+					numSamples = readData(1, trainSamples, true);
 				}
-#ifdef BATCH_MODE
-				if (pairedTraining) {
-					batchUpdate(pairedLayers.conv1);
-					batchUpdate(pairedLayers.conv2);
-					batchUpdate(pairedLayers.fixed);
-				}
-				else
-					batchUpdate(layers);
-#endif
+				trainSamples = numSamples;
 			}
 
-
-			float afterError;
-			float* afterSecError = new float[numSecErrors];
+			std::cout << "Calculating initial error: ";
+			float initError;
+			float* initSecError = new float[numSecErrors];
 			for (size_t i = 0; i < numSecErrors; i++)
-				afterSecError[i] = 0.0f;
+				initSecError[i] = 0.0f;
+			float testInitError;
+			float* testInitSecError = new float[numSecErrors];
+			for (size_t i = 0; i < numSecErrors; i++)
+				testInitSecError[i] = 0.0f;
+			float testSampleInitError;
+
 			disableDropout();
+			auto initstart = std::chrono::high_resolution_clock::now();
 			if (pairedTraining)
-				afterError = runPairedSim(pairedLayers, false, 0, trainSamples);
+				initError = runPairedSim(pairedLayers, false, 0, trainSamples);
 			else {
-				afterError = runSim(layers, false, 0, trainSamples, false, afterSecError);
+				initError = runSim(layers, false, 0, trainSamples, false, initSecError);
+			}
+			if (printTestError && !pairedTraining) {
+				testInitError = runSim(layers, false, 0, 0, false, testInitSecError, true);
+				if (testUseSampleFile)
+					testSampleInitError = sampleTestSim(layers, NULL, false, false, true);
 			}
 
-			float testAfterError = 0.0f;
-			float* testAfterSecError = new float[numSecErrors];
-			for (size_t i = 0; i < numSecErrors; i++)
-				testAfterSecError[i] = 0.0f;
-			if (printTestError && trainSamples >= minTrainSizeToPrintTestError && !pairedTraining) {
-				for (size_t i = 0; i < numSecErrors; i++)
-					testAfterSecError[i] = 0.0f;
-				testAfterError = runSim(layers, false, 0, 0, false, testAfterSecError, true);
-			}
+			auto initelapsed = std::chrono::high_resolution_clock::now() - initstart;
+			long long inittime = std::chrono::duration_cast<std::chrono::microseconds>(initelapsed).count();
 
-
-			auto gpuelapsed = std::chrono::high_resolution_clock::now() - gpustart;
-			long long gputime = std::chrono::duration_cast<std::chrono::microseconds>(gpuelapsed).count();
-			std::cout << gputime / 1000000 << " s, Error: " << afterError;
+			std::cout << inittime / 1000000 << " s, Error: " << initError;
 			for (size_t i = 0; i < numSecErrors; i++) {
-				if (afterSecError[i] != 0.0f)
-					std::cout << " SE" << i + 1 << ": " << afterSecError[i];
+				if (initSecError[i] != 0.0f)
+					std::cout << " SE" << i + 1 << ": " << initSecError[i];
 			}
-			if (printTestError && trainSamples >= minTrainSizeToPrintTestError && !pairedTraining) {
-				std::cout << " | Test Error: " << testAfterError;
+			if (printTestError && !pairedTraining) {
+				std::cout << " | Test Error: " << testInitError;
 				for (size_t i = 0; i < numSecErrors; i++) {
-					if (testAfterSecError[i] != 0.0f)
-						std::cout << " SE" << i + 1 << ": " << testAfterSecError[i];
+					if (testInitSecError[i] != 0.0f)
+						std::cout << " SE" << i + 1 << ": " << testInitSecError[i];
 				}
+				if (testUseSampleFile)
+					std::cout << " | Sample Test Error: " << testSampleInitError;
 			}
 			std::cout << std::endl;
 
-			loadSimVariables();	//to allow the user to change variables mid-run
-
-			float primaryAfterError;
+			float prevPrimaryAfterError;
 			if (primaryErrorType == 0)
-				primaryAfterError = afterError;
+				prevPrimaryAfterError = initError;
 			else
-				primaryAfterError = afterSecError[primaryErrorType - 1];
+				prevPrimaryAfterError = initSecError[primaryErrorType - 1];
+			updateLastErrors(prevPrimaryAfterError);
 
-			if (trainSamples >= stepAdjustmentNumStart) {
-				if (redoErrorThreshold > 0.0f && prevPrimaryAfterError > 0.0f && primaryAfterError - prevPrimaryAfterError > redoErrorThreshold) {
-					std::cout << "Error increase was above threshold; redoing last run with lower stepfactor" << std::endl;
+			delete[] initSecError;
+			delete[] testInitSecError;
 
-					if (pairedTraining)
-						loadPairedWeights(pairedLayers, savename);
-					else
-						loadWeights(layers, savename);
-					stepAdjustment *= redoStepAdjustment;
-					continue;
+			bool belowStallThresh = false;
+			while (true) {
+				if (trainSamples == totalSamples && ((numRunsOnFullTrainset != 0 && numRuns - numRunSetStart >= numRunsOnFullTrainset) || (lastErrors.back() <= fullTrainsetErrorGoal))) {
+					std::cout << "Run completed after " << numRuns - numRunSetStart << " rounds on full trainset" << std::endl;
+					break;
 				}
-				stepAdjustment *= successStepAdjustment;
-			}
-			prevPrimaryAfterError = primaryAfterError;
-			updateLastErrors(primaryAfterError);
-			if (pairedTraining)
-				savePairedWeights(pairedLayers, savename);
-			else
-				saveWeights(layers, savename);
-			numRuns += nIter;
-
-			if (primaryAfterError < trainIncreaseThreshold && trainSamples < totalSamples) {
-				saveSetHistory(numSamples, numRuns - numRunSetStart, stepMult);
-				numRunSetStart = numRuns;
-				trainSamples = min(trainSamplesIncreaseFactor * trainSamples, totalSamples);
-				if (randomizeSubsetOnThreshold) {
-					randomizeTrainSet();
-					numSamples = trainSamples;
-					std::cout << "Starting new run on " << numSamples << " samples" << std::endl;
+				if (!belowStallThresh && trainSamples == totalSamples && ((stallRestartThreshold != 0 && lastErrors.back() < stallRestartThreshold) || (minTestErrorStallRestartThreshold != 0 && minTestError < minTestErrorStallRestartThreshold))) {
+					belowStallThresh = true;
 				}
+				if (!belowStallThresh && trainSamples == totalSamples && numRunsToStallRestart > 0 && numRuns - numRunSetStart >= numRunsToStallRestart) {
+					std::cout << "Passed stall threshold after " << numRuns - numRunSetStart << " rounds, restarting with new weights." << std::endl;
+					moveSaveToStallBackup();
+					if (numTrainCrossValSets != 0 && cv > 0)
+						cv--;
+					else {
+						bagNum--;
+						if (numTrainCrossValSets != 0)
+							cv = numTrainCrossValSets - 1;
+					}
+					skipDataSetLoad = true;
+					break;
+				}
+
+				if (pairedTraining)
+					std::cout << nIter << "+1 runs on " << numSamples << " sample pairs";
 				else
-					numSamples = readData(1, trainSamples);
-				stepMult = max(stepMultDecFactor*stepMult, minimumStepMult);
-				prevPrimaryAfterError = -1.0f;
+					std::cout << nIter << "+1 runs on " << numSamples << " samples";
+				if (trainSamples >= stepAdjustmentNumStart && redoErrorThreshold > 0.0f) {
+					std::cout << "(SA: " << stepAdjustment << ")";
+				}
+				std::cout << ": ";
+				auto gpustart = std::chrono::high_resolution_clock::now();
+
+				if (randomizeSubsetOnThreshold) {
+					randomizeTrainSet(trainSamples);
+				}
+				else if (randomizeTrainSetEveryRun)
+					randomizeTrainSet();
+
+				enableDropout();
+				for (size_t i = 0; i < nIter; i++) {
+					if (pairedTraining)
+						runPairedSim(pairedLayers, true, stepMultiplier(numRuns), trainSamples);
+					else {
+						runSim(layers, true, stepMultiplier(numRuns), trainSamples);
+					}
+#ifdef BATCH_MODE
+					if (pairedTraining) {
+						batchUpdate(pairedLayers.conv1);
+						batchUpdate(pairedLayers.conv2);
+						batchUpdate(pairedLayers.fixed);
+					}
+					else
+						batchUpdate(layers);
+#endif
+				}
+
+
+				float afterError;
+				float* afterSecError = new float[numSecErrors];
+				for (size_t i = 0; i < numSecErrors; i++)
+					afterSecError[i] = 0.0f;
+				disableDropout();
+				if (pairedTraining)
+					afterError = runPairedSim(pairedLayers, false, 0, trainSamples);
+				else {
+					afterError = runSim(layers, false, 0, trainSamples, false, afterSecError);
+				}
+
+				float testAfterError = 0.0f;
+				float* testAfterSecError = new float[numSecErrors];
+				for (size_t i = 0; i < numSecErrors; i++)
+					testAfterSecError[i] = 0.0f;
+				float testSampleAfterError;
+				if (printTestError && trainSamples >= minTrainSizeToPrintTestError && !pairedTraining) {
+					for (size_t i = 0; i < numSecErrors; i++)
+						testAfterSecError[i] = 0.0f;
+					testAfterError = runSim(layers, false, 0, 0, false, testAfterSecError, true);
+					if (testUseSampleFile)
+						testSampleAfterError = sampleTestSim(layers, NULL, false, false, true);
+				}
+
+				auto gpuelapsed = std::chrono::high_resolution_clock::now() - gpustart;
+				long long gputime = std::chrono::duration_cast<std::chrono::microseconds>(gpuelapsed).count();
+				std::cout << gputime / 1000000 << " s, Error: " << afterError;
+				for (size_t i = 0; i < numSecErrors; i++) {
+					if (afterSecError[i] != 0.0f)
+						std::cout << " SE" << i + 1 << ": " << afterSecError[i];
+				}
+				if (printTestError && trainSamples >= minTrainSizeToPrintTestError && !pairedTraining) {
+					std::cout << " | Test Error: " << testAfterError;
+					for (size_t i = 0; i < numSecErrors; i++) {
+						if (testAfterSecError[i] != 0.0f)
+							std::cout << " SE" << i + 1 << ": " << testAfterSecError[i];
+					}
+
+					if (testUseSampleFile)
+						std::cout << " | Test Sample Error: " << testSampleAfterError;
+				}
+				std::cout << std::endl;
+
+				loadSimVariables();	//to allow the user to change variables mid-run
+
+				float primaryAfterError;
+				if (primaryErrorType == 0)
+					primaryAfterError = afterError;
+				else
+					primaryAfterError = afterSecError[primaryErrorType - 1];
+
+				if (trainSamples >= stepAdjustmentNumStart) {
+					if (redoErrorThreshold > 0.0f && prevPrimaryAfterError > 0.0f && primaryAfterError - prevPrimaryAfterError > redoErrorThreshold) {
+						std::cout << "Error increase was above threshold; redoing last run with lower stepfactor" << std::endl;
+
+						if (pairedTraining)
+							loadPairedWeights(pairedLayers, savename);
+						else
+							loadWeights(layers, savename);
+						stepAdjustment *= redoStepAdjustment;
+						continue;
+					}
+					stepAdjustment *= successStepAdjustment;
+				}
+				prevPrimaryAfterError = primaryAfterError;
+				updateLastErrors(primaryAfterError);
+				if (pairedTraining)
+					savePairedWeights(pairedLayers, savename);
+				else
+					saveWeights(layers, savename);
+				numRuns += nIter;
+
+				saveResults(numRuns, afterError, afterSecError, testAfterError, testAfterSecError);
+
+				if (trainSamples >= backupSampleNumStart && backupInterval > 0 && (numRuns - numRunSetStart) % backupInterval == 0) {
+					std::stringstream bss;
+					bss << savename << numSamples << "-" << numRuns - numRunSetStart;
+					backupFiles(bss.str().c_str());
+				}
+
+				float testMinAfterError;
+				if (testUseSampleFile && backupMinTestErrorSample)
+					testMinAfterError = testSampleAfterError;
+				else {
+					if (testMinErrorType == 0)
+						testMinAfterError = testAfterError;
+					else
+						testMinAfterError = testAfterSecError[testMinErrorType - 1];
+				}
+
+				if (backupMinTestError && testMinAfterError < minTestError && printTestError && trainSamples >= minTrainSizeToPrintTestError) {
+					minTestError = testMinAfterError;
+					saveSimVariables();
+					std::stringstream bss;
+					bss << savename << "Min";
+					backupFiles(bss.str().c_str());
+				}
+
+				if (primaryAfterError < trainIncreaseThreshold && trainSamples < totalSamples) {
+					saveSetHistory(numSamples, numRuns - numRunSetStart, stepMult);
+					numRunSetStart = numRuns;
+					trainSamples = min(trainSamplesIncreaseFactor * trainSamples, totalSamples);
+					if (randomizeSubsetOnThreshold) {
+						randomizeTrainSet();
+						numSamples = trainSamples;
+						std::cout << "Starting new run on " << numSamples << " samples" << std::endl;
+					}
+					else
+						numSamples = readData(1, trainSamples);
+					stepMult = max(stepMultDecFactor*stepMult, minimumStepMult);
+					prevPrimaryAfterError = -1.0f;
+				}
+
+				saveSimVariables();
+
+				delete[] afterSecError;
+				delete[] testAfterSecError;
 			}
-
-			saveResults(numRuns, afterError, afterSecError, testAfterError, testAfterSecError);
-
-			if (trainSamples >= backupSampleNumStart && backupInterval > 0 && (numRuns - numRunSetStart) % backupInterval == 0) {
-				std::stringstream bss;
-				bss << savename << numSamples << "-" << numRuns - numRunSetStart;
-				backupFiles(bss.str().c_str());
-			}
-
-			float testMinAfterError;
-			if (testMinErrorType == 0)
-				testMinAfterError = testAfterError;
-			else
-				testMinAfterError = testAfterSecError[testMinErrorType - 1];
-			if (backupMinTestError && testMinAfterError < minTestError) {
-				minTestError = testMinAfterError;
-				std::stringstream bss;
-				bss << savename << "Min";
-				backupFiles(bss.str().c_str());
-			}
-
-			delete[] afterSecError;
-			delete[] testAfterSecError;
-
-			saveSimVariables();
+			if (!trainStockBAGSet && !(trainSamples == totalSamples && numRunsToStallRestart > 0 && numRuns - numRunSetStart >= numRunsToStallRestart))
+				break;
 		}
-		if (!trainStockBAGSet && !(trainSamples == totalSamples && numRunsToStallRestart > 0 && numRuns - numRunSetStart >= numRunsToStallRestart))
-			break;
 	}
 }
 
@@ -591,6 +656,12 @@ void loadLocalParameters() {
 			lss >> stallRestartThreshold;
 		else if (var == "addBagTradeSuffix")
 			lss >> addBagTradeSuffix;
+		else if (var == "numTrainCrossValSets")
+			lss >> numTrainCrossValSets;
+		else if (var == "minTestErrorStallRestartThreshold")
+			lss >> minTestErrorStallRestartThreshold;
+		else if (var == "backupMinTestErrorSample")
+			lss >> backupMinTestErrorSample;
 	}
 }
 

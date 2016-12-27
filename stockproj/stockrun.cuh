@@ -95,7 +95,7 @@ void saveExplicitTrainSet(std::string learnsetname);
 void loadParameters(std::string parName);
 
 void sampleReadTrainSet(std::string learnsetname, bool discard, size_t* numDiscards, bool overrideBinningSwitch = false, bool runOnTestSet = false, size_t startingSample = 0, bool readInBlocks = false);
-float sampleTestSim(LayerCollection layers, std::ofstream* outfile, bool testPrintSampleAll = false);
+float sampleTestSim(LayerCollection layers, std::ofstream* outfile, bool testPrintSampleAll = false, bool print = true, bool runOnTestSet = false);
 
 std::vector<float> getBinnedOutput(float output);
 

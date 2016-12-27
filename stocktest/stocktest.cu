@@ -104,16 +104,18 @@ int main() {
 					error = sampleTestSim(layers, &outfile, testPrintSampleAll);
 				else {
 					error = 0.0f;
-					size_t numErrorBlocks = 0;
 					size_t intervalNum = testBegin;
+					size_t numSamples = 0;
 					size_t numLoaded = 0;
 					do {
-						error += sampleTestSim(layers, &outfile, testPrintSampleAll);
-						numErrorBlocks++;
+						size_t trainSize = getTrainSet()->size();
+						error += trainSize*sampleTestSim(layers, &outfile, testPrintSampleAll);
 						intervalNum += INTERVALS_PER_DATASET;
+						numSamples += trainSize;
 						numLoaded = readData(intervalNum, 0);
 					} while (numLoaded != 0);
-					error /= numErrorBlocks;
+					if (numSamples != 0)
+						error /= numSamples;
 				}
 			}
 			else
@@ -166,9 +168,9 @@ size_t readData(size_t begin, size_t numIOs) {
 	}
 	else {
 		if (INTERVALS_PER_DATASET > 0)
-			std::cout << "Reading " << INTERVALS_PER_DATASET << " intervals from trainset starting at " << begin << ": ";
+			std::cout << "Reading " << INTERVALS_PER_DATASET << " intervals from trainset " << testfile << " starting at " << begin << ": ";
 		else
-			std::cout << "Reading trainset: ";
+			std::cout << "Reading trainset " << testfile << ": ";
 		auto readstart = std::chrono::high_resolution_clock::now();
 		size_t numDiscards[2];
 

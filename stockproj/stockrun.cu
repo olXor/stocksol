@@ -1,4 +1,5 @@
 #include "stockrun.cuh"
+#include <limits>
 
 std::vector<IOPair> trainset;
 std::vector<IOPair> testset;
@@ -1389,7 +1390,7 @@ float testSim(LayerCollection layers, std::string ofname) {
 	return error;
 }
 
-float sampleTestSim(LayerCollection layers, std::ofstream* outfile, bool testPrintSampleAll) {
+float sampleTestSim(LayerCollection layers, std::ofstream* outfile, bool testPrintSampleAll, bool print, bool runOnTestSet) {
 	float* d_inputs;
 	if (layers.numConvolutions > 0) {
 		if (layers.convPars[0].numInputLocs != NUM_INPUTS || layers.convPars[0].numInputNeurons != 1)
@@ -1404,13 +1405,19 @@ float sampleTestSim(LayerCollection layers, std::ofstream* outfile, bool testPri
 	else
 		throw std::runtime_error("tried to run on a network with no convolutions and no fixed networks");
 
+	std::vector<IOPair>* dataset;
+	if (!runOnTestSet)
+		dataset = &trainset;
+	else
+		dataset = &testset;
+
 	float* h_output = new float[numBins];
 
 	float error = 0;
 	size_t numerrors = 0;
 	size_t currentSample = 0;
-	if (trainset.size() > 0)
-		currentSample = trainset[0].samplenum;
+	if ((*dataset).size() > 0)
+		currentSample = (*dataset)[0].samplenum;
 	std::vector<float> sampleoutputs;
 	float* samplebins = new float[numBins];
 	for (size_t i = 0; i < numBins; i++)
@@ -1430,9 +1437,9 @@ float sampleTestSim(LayerCollection layers, std::ofstream* outfile, bool testPri
 	disableDropout();
 	generateDropoutMask(&layers);
 
-	for (size_t i = 0; i < trainset.size(); i++) {
+	for (size_t i = 0; i < (*dataset).size(); i++) {
 		//----calculate----
-		checkCudaErrors(cudaMemcpy(d_inputs, &trainset[i].inputs[0], NUM_INPUTS*sizeof(float), cudaMemcpyHostToDevice));
+		checkCudaErrors(cudaMemcpy(d_inputs, &(*dataset)[i].inputs[0], NUM_INPUTS*sizeof(float), cudaMemcpyHostToDevice));
 
 		calculate(layers);
 
@@ -1447,7 +1454,7 @@ float sampleTestSim(LayerCollection layers, std::ofstream* outfile, bool testPri
 			sampleoutputs.push_back(h_output[0]);
 		}
 
-		if (i == trainset.size() - 1 || trainset[i + 1].samplenum != currentSample) {
+		if (i == (*dataset).size() - 1 || (*dataset)[i + 1].samplenum != currentSample) {
 			numerrors++;
 			if (binnedOutput) {
 				float maxProb = 0.0f;
@@ -1455,7 +1462,7 @@ float sampleTestSim(LayerCollection layers, std::ofstream* outfile, bool testPri
 				float totalSquare = 0.0f;
 				size_t bestBin = 0;
 				size_t correctBin = 0;
-				float correctoutput = trainset[i].correctoutput;
+				float correctoutput = (*dataset)[i].correctoutput;
 				float avgRes = 0.0f;
 				float squareRes = 0.0f;
 
@@ -1470,7 +1477,7 @@ float sampleTestSim(LayerCollection layers, std::ofstream* outfile, bool testPri
 						avgRes += samplebins[j]*(binMin + j*binWidth + binWidth / 2);
 						squareRes += samplebins[j] * samplebins[j] * (binMin + j*binWidth + binWidth / 2);
 					}
-					if (trainset[i].correctbins[j] == binPositiveOutput) {
+					if ((*dataset)[i].correctbins[j] == binPositiveOutput) {
 						correctBin = j;
 					}
 				}
@@ -1491,38 +1498,41 @@ float sampleTestSim(LayerCollection layers, std::ofstream* outfile, bool testPri
 					binClose++;
 				if (fabs(squareRes - correctoutput) <= binWidth)
 					squareClose++;
-				std::cout << "Sample " << currentSample << "| Actual: " << correctoutput << " Top Bin: " << binMin + bestBin*binWidth << "-" << binMin + (bestBin + 1)*binWidth << " with confidence " << maxProb / totalProb << " (E: " << binRes - correctoutput << ") Weighted Average: " << avgRes << " (E: " << avgRes - correctoutput << ") Squared Average: " << squareRes << " (E: " << squareRes - correctoutput << ")";
+				if (print)
+					std::cout << "Sample " << currentSample << "| Actual: " << correctoutput << " Top Bin: " << binMin + bestBin*binWidth << "-" << binMin + (bestBin + 1)*binWidth << " with confidence " << maxProb / totalProb << " (E: " << binRes - correctoutput << ") Weighted Average: " << avgRes << " (E: " << avgRes - correctoutput << ") Squared Average: " << squareRes << " (E: " << squareRes - correctoutput << ")";
 				if (correctBin == bestBin) {
-					std::cout << " CORRECT" << std::endl;
+					if (print)
+						std::cout << " CORRECT" << std::endl;
 					numCorrectlyBinned++;
 				}
 				else {
-					std::cout << " INCORRECT" << std::endl;
+					if (print)
+						std::cout << " INCORRECT" << std::endl;
 					numIncorrectlyBinned++;
 					if (correctBin > bestBin)
 						error += binWidth*(correctBin - bestBin);
 					else
 						error += binWidth*(bestBin - correctBin);
 				}
-				if (outfile->is_open()) {
+				if (outfile != NULL && outfile->is_open()) {
 					(*outfile) << currentSample << " " << correctoutput << " " << binRes << " " << avgRes << " " << squareRes << std::endl;
 				}
 
 				for (size_t j = 0; j < numBins; j++) {
 					samplebins[j] = 0.0f;
 				}
-				if (i < trainset.size() - 1)
-					currentSample = trainset[i + 1].samplenum;
+				if (i < (*dataset).size() - 1)
+					currentSample = (*dataset)[i + 1].samplenum;
 			}
 			else {
 				float origmean = mean(sampleoutputs);
 				float origdev = stdev(sampleoutputs, origmean);
 				for (size_t j = 0; j < sampleoutputs.size(); j++) {
 					if (testPrintSampleAll) {
-						std::cout << "   Sample " << currentSample << "| Actual: " << trainset[i].correctoutput << " Measured: " << sampleoutputs[j] << " Error: " << sampleoutputs[j] - trainset[i].correctoutput;
-						(*outfile) << "   Sample " << currentSample << "| Actual: " << trainset[i].correctoutput << " Measured: " << sampleoutputs[j] << " Error: " << sampleoutputs[j] - trainset[i].correctoutput;
+						std::cout << "   Sample " << currentSample << "| Actual: " << (*dataset)[i].correctoutput << " Measured: " << sampleoutputs[j] << " Error: " << sampleoutputs[j] - (*dataset)[i].correctoutput;
+						(*outfile) << "   Sample " << currentSample << "| Actual: " << (*dataset)[i].correctoutput << " Measured: " << sampleoutputs[j] << " Error: " << sampleoutputs[j] - (*dataset)[i].correctoutput;
 					}
-					if (fabs(sampleoutputs[j] - origmean) > origdev) {
+					if (origdev > 0.1f && fabs(sampleoutputs[j] - origmean) > origdev) {
 						sampleoutputs.erase(sampleoutputs.begin() + j);
 						j--;
 						if (testPrintSampleAll) {
@@ -1537,19 +1547,20 @@ float sampleTestSim(LayerCollection layers, std::ofstream* outfile, bool testPri
 				}
 				float newmean = mean(sampleoutputs);
 				float newstdev = stdev(sampleoutputs, newmean);
-				float correct = trainset[i].correctoutput;
+				float correct = (*dataset)[i].correctoutput;
 				float newerror = newmean - correct;
 				error += fabs(newerror);
 
-				std::cout << "Sample " << currentSample << "| Actual: " << correct << " Measured: " << newmean << " +/- " << newstdev << " Error: " << newerror << std::endl;
-				if ((*outfile).is_open()) {
+				if (print)
+					std::cout << "Sample " << currentSample << "| Actual: " << correct << " Measured: " << newmean << " +/- " << newstdev << " Error: " << newerror << std::endl;
+				if (outfile != NULL && (*outfile).is_open()) {
 					(*outfile) << currentSample << " " << correct << " " << newmean << " " << newstdev << " " << newerror << std::endl;
 				}
 
 				sampleoutputs.clear();
 			}
-			if (i < trainset.size() - 1)
-				currentSample = trainset[i + 1].samplenum;
+			if (i < (*dataset).size() - 1)
+				currentSample = (*dataset)[i + 1].samplenum;
 		}
 	}
 
@@ -1558,7 +1569,8 @@ float sampleTestSim(LayerCollection layers, std::ofstream* outfile, bool testPri
 
 	if (numerrors > 0) {
 		if (binnedOutput) {
-			std::cout << "Correctly Binned: " << numCorrectlyBinned << "/" << numCorrectlyBinned + numIncorrectlyBinned << "(" << 1.0f*numCorrectlyBinned / (numCorrectlyBinned + numIncorrectlyBinned) << ")" << std::endl;
+			if (print)
+				std::cout << "Correctly Binned: " << numCorrectlyBinned << "/" << numCorrectlyBinned + numIncorrectlyBinned << "(" << 1.0f*numCorrectlyBinned / (numCorrectlyBinned + numIncorrectlyBinned) << ")" << std::endl;
 			avgMAV /= numerrors;
 			binMAV /= numerrors;
 			squareMAV /= numerrors;
@@ -1566,8 +1578,10 @@ float sampleTestSim(LayerCollection layers, std::ofstream* outfile, bool testPri
 			binRMS = sqrt(binRMS / numerrors);
 			squareRMS = sqrt(squareRMS / numerrors);
 
-			std::cout << "Avg MAV: " << avgMAV << " Avg RMS: " << avgRMS << " Bin MAV: " << binMAV << " Bin RMS: " << binRMS << " Square MAV: " << squareMAV << " Square RMS: " << squareRMS << std::endl;
-			std::cout << "Within Bin Width: " << "Avg: " << avgClose << "/" << numerrors << "(" << 1.0f*avgClose / numerrors << ")" << "Bin: " << binClose << "/" << numerrors << "(" << 1.0f*binClose / numerrors << ")" << "Squared: " << squareClose << "/" << numerrors << "(" << 1.0f*squareClose / numerrors << ")" << std::endl;
+			if (print) {
+				std::cout << "Avg MAV: " << avgMAV << " Avg RMS: " << avgRMS << " Bin MAV: " << binMAV << " Bin RMS: " << binRMS << " Square MAV: " << squareMAV << " Square RMS: " << squareRMS << std::endl;
+				std::cout << "Within Bin Width: " << "Avg: " << avgClose << "/" << numerrors << "(" << 1.0f*avgClose / numerrors << ")" << "Bin: " << binClose << "/" << numerrors << "(" << 1.0f*binClose / numerrors << ")" << "Squared: " << squareClose << "/" << numerrors << "(" << 1.0f*squareClose / numerrors << ")" << std::endl;
+			}
 		}
 
 		error /= numerrors;
@@ -1792,10 +1806,12 @@ void sampleReadTrainSet(std::string learnsetname, bool discard, size_t* numDisca
 		std::string dline;
 
 		std::list<float> inputs;
-		for (int i = 1; i <= send && getline(datafile, dline); i++) {
-			if (i < sstart)
-				continue;
-
+		for (int i = 1; i < sstart; i++) {
+			if (!datafile.ignore(10000000, datafile.widen('\n'))) {
+				std::cout << "Error skipping past initial lines in data file" << std::endl;
+			}
+		}
+		for (int i = sstart; i <= send && getline(datafile, dline); i++) {
 			std::string dum;
 			std::stringstream dliness(dline);
 			float in;
