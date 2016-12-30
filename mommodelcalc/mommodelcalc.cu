@@ -17,6 +17,7 @@ std::vector<size_t> columns;
 size_t begin = 1;
 size_t end = 0;
 bool discard = 1;
+bool usingIntervalFile = false;
 
 size_t currentLineNum = 1;
 
@@ -24,6 +25,7 @@ LayerCollection weightlayers;
 
 std::vector<std::list<float>> inputs;
 
+bool readIntervalParameters(std::ifstream* intervalfile);
 bool readIntervalData(std::ifstream* datafile, std::vector<std::vector<IOPair>>* intervalData, size_t* iBegin, size_t* iEnd);
 void saveIntervalResult(std::ofstream* resultfile, std::vector<std::vector<IOPair>>* intervalData, bool print);
 
@@ -43,11 +45,47 @@ int main() {
 	columns.push_back(4);
 
 	bool print = true;
+	std::string intervalfname = "";
 	std::string line;
-	std::cout << "Enter the name of the data file to read (default: \"trainset\"): ";
+
+	std::cout << "Specify interval file (blank: enter a single interval manually): ";
 	std::getline(std::cin, line);
-	if (!line.empty()) std::stringstream(line) >> datafname;
+	if (!line.empty()) std::stringstream(line) >> intervalfname;
 	std::cout << std::endl;
+
+	usingIntervalFile = (intervalfname != "");
+
+	if (!usingIntervalFile) {
+		std::cout << "Enter the name of the data file to read (default: \"trainset\"): ";
+		std::getline(std::cin, line);
+		if (!line.empty()) std::stringstream(line) >> datafname;
+		std::cout << std::endl;
+
+		std::string colstr;
+		std::cout << "Enter the column numbers (default: 1 2 3 4): ";
+		std::getline(std::cin, line);
+		colstr = line;
+		std::cout << std::endl;
+
+		if (colstr != "") {
+			columns.clear();
+			std::stringstream colss(colstr);
+			size_t col;
+			while (colss >> col) {
+				columns.push_back(col);
+			}
+		}
+
+		std::cout << "Enter the first line number to read (default: 1): ";
+		std::getline(std::cin, line);
+		if (!line.empty()) std::stringstream(line) >> begin;
+		std::cout << std::endl;
+
+		std::cout << "Enter the last line number to read (default: 0): ";
+		std::getline(std::cin, line);
+		if (!line.empty()) std::stringstream(line) >> end;
+		std::cout << std::endl;
+	}
 
 	std::cout << "Enter the name of the result file to write to (default: \"calcresults\"): ";
 	std::getline(std::cin, line);
@@ -64,31 +102,6 @@ int main() {
 	if (!line.empty()) std::stringstream(line) >> intervalSize;
 	std::cout << std::endl;
 
-	std::string colstr;
-	std::cout << "Enter the column numbers (default: 1 2 3 4): ";
-	std::getline(std::cin, line);
-	colstr = line;
-	std::cout << std::endl;
-
-	if (colstr != "") {
-		columns.clear();
-		std::stringstream colss(colstr);
-		size_t col;
-		while (colss >> col) {
-			columns.push_back(col);
-		}
-	}
-
-	std::cout << "Enter the first line number to read (default: 1): ";
-	std::getline(std::cin, line);
-	if (!line.empty()) std::stringstream(line) >> begin;
-	std::cout << std::endl;
-
-	std::cout << "Enter the last line number to read (default: 0): ";
-	std::getline(std::cin, line);
-	if (!line.empty()) std::stringstream(line) >> end;
-	std::cout << std::endl;
-
 	std::cout << "Output results to screen? (default: 1): ";
 	std::getline(std::cin, line);
 	if (!line.empty()) std::stringstream(line) >> print;
@@ -99,11 +112,10 @@ int main() {
 	if (!line.empty()) std::stringstream(line) >> discard;
 	std::cout << std::endl;
 
-	std::stringstream datass;
-	datass << datastring << datafname;
-	std::ifstream datafile(datass.str());
-	if (!datafile.is_open()) {
-		std::cout << "Couldn't open data file" << std::endl;
+	weightlayers = createLayerCollection(0, FULL_NETWORK);
+	initializeLayers(&weightlayers);
+	if (!loadWeights(weightlayers, weightfname)) {
+		std::cout << "Couldn't open weights file" << std::endl;
 		system("pause");
 		return 0;
 	}
@@ -117,26 +129,48 @@ int main() {
 		return 0;
 	}
 
-	weightlayers = createLayerCollection(0, FULL_NETWORK);
-	initializeLayers(&weightlayers);
-	if (!loadWeights(weightlayers, weightfname)) {
-		std::cout << "Couldn't open weights file" << std::endl;
-		system("pause");
-		return 0;
+	std::ifstream intervalfile;
+	if (usingIntervalFile) {
+		std::stringstream intss;
+		intss << datastring << intervalfname;
+		intervalfile.open(intss.str());
+		if (!intervalfile.is_open()) {
+			std::cout << "Couldn't open interval file" << std::endl;
+			system("pause");
+			return 0;
+		}
 	}
 
-	std::vector<std::vector<IOPair>> intervalData;
-	intervalData.resize(columns.size());
-	inputs.resize(columns.size());
 	size_t inum = 1;
-	size_t iBegin;
-	size_t iEnd;
-	while (readIntervalData(&datafile, &intervalData, &iBegin, &iEnd)) {
-		if (print)
-			std::cout << "Interval #" << inum << " (" << iBegin << "-" << iEnd << ") | " << std::endl;
-		resultfile << inum << " " << iBegin << " " << iEnd << " ";
-		saveIntervalResult(&resultfile, &intervalData, print);
-		inum++;
+	while (!usingIntervalFile || readIntervalParameters(&intervalfile)) {
+		std::stringstream datass;
+		datass << datastring << datafname;
+		std::ifstream datafile(datass.str());
+		if (!datafile.is_open()) {
+			std::cout << "Couldn't open data file" << std::endl;
+			system("pause");
+			return 0;
+		}
+
+		std::vector<std::vector<IOPair>> intervalData;
+		intervalData.resize(columns.size());
+		inputs.resize(columns.size());
+		for (size_t i = 0; i < columns.size(); i++) {
+			intervalData[i].clear();
+			inputs[i].clear();
+		}
+		size_t iBegin;
+		size_t iEnd;
+		currentLineNum = 1;
+		while (readIntervalData(&datafile, &intervalData, &iBegin, &iEnd)) {
+			if (print)
+				std::cout << "Interval #" << inum << " (" << datafname << " " << iBegin << "-" << iEnd << ") | " << std::endl;
+			resultfile << inum << " " << datafname << " " << iBegin << " " << iEnd << " ";
+			saveIntervalResult(&resultfile, &intervalData, print);
+			inum++;
+		}
+		if (!usingIntervalFile)
+			break;
 	}
 
 	std::cout << "Done." << std::endl;
@@ -266,13 +300,30 @@ void saveIntervalResult(std::ofstream* resultfile, std::vector<std::vector<IOPai
 		if (print)
 			std::cout << "    Column " << columns[c] << ": " << newmean << "+/-" << newstdev << "(" << numOutliersDiscarded << "/" << numTotalPoints << " outliers discarded)" << std::endl;
 
-		while (columnnum < columns[c]) {
+		while (!usingIntervalFile && columnnum < columns[c]) {
 			(*resultfile) << "0 0 ";
 			columnnum++;
 		}
+
+		if (usingIntervalFile)
+			(*resultfile) << columns[c] << " ";
 
 		(*resultfile) << newmean << " " << newstdev << " ";
 		columnnum++;
 	}
 	(*resultfile) << std::endl;
+}
+
+bool readIntervalParameters(std::ifstream* intervalfile) {
+	std::string line;
+	bool done = true;
+	if (getline((*intervalfile), line)) done = false;
+	if (!done) {
+		std::stringstream lss(line);
+		size_t column;
+		lss >> datafname >> column >> begin >> end;
+		columns.clear();
+		columns.push_back(column);
+	}
+	return !done;
 }
