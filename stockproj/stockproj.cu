@@ -20,7 +20,7 @@ size_t backupSampleNumStart = 0;
 
 #define RAND_EXPLICIT			//uses a test set with inputs in a random order (specified by randtrainstring)
 
-void saveResults(size_t numRuns, float afterError, float* afterSecError, float testAfterError, float* testAfterSecError);
+void saveResults(size_t numRuns, float afterError, float* afterSecError, float testAfterError, float* testAfterSecError, float testSampleAfterError);
 void saveSetHistory(size_t nSamples, size_t nRuns, float stepFacMult);
 void loadLocalParameters();
 void loadSimVariables();
@@ -222,7 +222,6 @@ int main() {
 
 			size_t numSamples;
 			if (!skipDataSetLoad) {
-				skipDataSetLoad = false;
 				if (randomizeSubsetOnThreshold) {
 					size_t tSamples = readData(1, 0, printTestError);
 					randomizeTrainSet();
@@ -236,6 +235,7 @@ int main() {
 				}
 				trainSamples = numSamples;
 			}
+			skipDataSetLoad = false;
 
 			std::cout << "Calculating initial error: ";
 			float initError;
@@ -420,7 +420,7 @@ int main() {
 					saveWeights(layers, savename);
 				numRuns += nIter;
 
-				saveResults(numRuns, afterError, afterSecError, testAfterError, testAfterSecError);
+				saveResults(numRuns, afterError, afterSecError, testAfterError, testAfterSecError, testSampleAfterError);
 
 				if (trainSamples >= backupSampleNumStart && backupInterval > 0 && (numRuns - numRunSetStart) % backupInterval == 0) {
 					std::stringstream bss;
@@ -472,7 +472,7 @@ int main() {
 	}
 }
 
-void saveResults(size_t numRuns, float afterError, float* afterSecError, float testAfterError, float* testAfterSecError) {
+void saveResults(size_t numRuns, float afterError, float* afterSecError, float testAfterError, float* testAfterSecError, float testSampleAfterError) {
 	std::stringstream resname;
 	resname << savestring << savename << "result";
 	std::ofstream resfile(resname.str().c_str(), std::ios_base::app);
@@ -484,6 +484,10 @@ void saveResults(size_t numRuns, float afterError, float* afterSecError, float t
 	for (size_t i = 0; i < numSecErrors; i++) {
 		resfile << " " << testAfterSecError[i];
 	}
+
+	if (testUseSampleFile)
+		resfile << " " << testSampleAfterError;
+
 	resfile << std::endl;
 }
 

@@ -111,4 +111,8 @@ std::vector<IOPair>* getTestSet();
 
 size_t readTwoPriceTrainSet(std::string learnsetname, size_t begin, size_t numIOs, bool overrideBinningSwitch = false, bool runOnTestSet = false);
 
+bool discardInput(float* inputs);
+
+float mean(std::vector<float> in);
+float stdev(std::vector<float> in, float mean);
 #endif

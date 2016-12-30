@@ -17,6 +17,8 @@ Project("{8BC9CEB8-8B4A-11D0-8D11-00A0C91BC942}") = "freqspace", "freqspace\freq
 EndProject
 Project("{8BC9CEB8-8B4A-11D0-8D11-00A0C91BC942}") = "stockselect", "stockselect\stockselect.vcxproj", "{E232018E-D607-44A7-ADD9-34B1C602C5F1}"
 EndProject
+Project("{8BC9CEB8-8B4A-11D0-8D11-00A0C91BC942}") = "mommodelcalc", "mommodelcalc\mommodelcalc.vcxproj", "{6CF98097-151C-427A-9B8A-BD7578AF693A}"
+EndProject
 Global
 	GlobalSection(SolutionConfigurationPlatforms) = preSolution
 		Debug|ARM = Debug|ARM
@@ -97,6 +99,16 @@ Global
 		{E232018E-D607-44A7-ADD9-34B1C602C5F1}.Release|Win32.Build.0 = Release|Win32
 		{E232018E-D607-44A7-ADD9-34B1C602C5F1}.Release|x64.ActiveCfg = Release|x64
 		{E232018E-D607-44A7-ADD9-34B1C602C5F1}.Release|x64.Build.0 = Release|x64
+		{6CF98097-151C-427A-9B8A-BD7578AF693A}.Debug|ARM.ActiveCfg = Debug|Win32
+		{6CF98097-151C-427A-9B8A-BD7578AF693A}.Debug|Win32.ActiveCfg = Debug|Win32
+		{6CF98097-151C-427A-9B8A-BD7578AF693A}.Debug|Win32.Build.0 = Debug|Win32
+		{6CF98097-151C-427A-9B8A-BD7578AF693A}.Debug|x64.ActiveCfg = Debug|x64
+		{6CF98097-151C-427A-9B8A-BD7578AF693A}.Debug|x64.Build.0 = Debug|x64
+		{6CF98097-151C-427A-9B8A-BD7578AF693A}.Release|ARM.ActiveCfg = Release|Win32
+		{6CF98097-151C-427A-9B8A-BD7578AF693A}.Release|Win32.ActiveCfg = Release|Win32
+		{6CF98097-151C-427A-9B8A-BD7578AF693A}.Release|Win32.Build.0 = Release|Win32
+		{6CF98097-151C-427A-9B8A-BD7578AF693A}.Release|x64.ActiveCfg = Release|x64
+		{6CF98097-151C-427A-9B8A-BD7578AF693A}.Release|x64.Build.0 = Release|x64
 	EndGlobalSection
 	GlobalSection(SolutionProperties) = preSolution
 		HideSolutionNode = FALSE

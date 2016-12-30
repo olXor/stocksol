@@ -71,10 +71,10 @@ int main() {
 			std::vector<IOPair> crosstest;
 			crosstrain.clear();
 			crosstest.clear();
-			size_t trainGapBegin = (size_t)fullset->size()*(1.0f*i / numRanTrainCrossSets);
-			size_t trainGapEnd = (size_t)fullset->size()*(1.0f*(i + 1) / numRanTrainCrossSets);
-			size_t testBegin = (size_t)fullset->size()*(1.0f*i / numRanTrainCrossSets);
-			size_t testEnd = (size_t)fullset->size()*(1.0f*(i + 1) / numRanTrainCrossSets);
+			size_t trainGapBegin = (size_t)(fullset->size()*(1.0f*i / numRanTrainCrossSets));
+			size_t trainGapEnd = (size_t)(fullset->size()*(1.0f*(i + 1) / numRanTrainCrossSets));
+			size_t testBegin = (size_t)(fullset->size()*(1.0f*i / numRanTrainCrossSets));
+			size_t testEnd = (size_t)(fullset->size()*(1.0f*(i + 1) / numRanTrainCrossSets));
 			if (i != 0) {
 				trainGapBegin -= ranTrainCrossGapSize / 2;
 				testBegin += ranTrainCrossGapSize / 2;
@@ -86,7 +86,7 @@ int main() {
 			if (trainGapBegin > fullset->size() || testBegin > fullset->size() || trainGapEnd > fullset->size() || testEnd > fullset->size()) {
 				std::cout << "Cross validation gap size invalid!" << std::endl;
 				system("pause");
-				return;
+				return 0;
 			}
 
 			std::cout << "Set #" << i + 1 << ": Train Gap from " << trainGapBegin << "-" << trainGapEnd << " Test Set from " << testBegin << "-" << testEnd << std::endl;
