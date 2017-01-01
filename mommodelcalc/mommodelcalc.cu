@@ -17,7 +17,10 @@ std::vector<size_t> columns;
 size_t begin = 1;
 size_t end = 0;
 bool discard = 1;
+bool keepExtraData = 1;
+std::vector<std::string> extraData;
 bool usingIntervalFile = false;
+bool discardIntervalRemainder = true;
 
 size_t currentLineNum = 1;
 
@@ -112,6 +115,20 @@ int main() {
 	if (!line.empty()) std::stringstream(line) >> discard;
 	std::cout << std::endl;
 
+	std::cout << "Discard interval remainder? (default: 1): ";
+	std::getline(std::cin, line);
+	if (!line.empty()) std::stringstream(line) >> discardIntervalRemainder;
+	std::cout << std::endl;
+
+	if (usingIntervalFile) {
+		std::cout << "Keep extra data columns? (default: 1): ";
+		std::getline(std::cin, line);
+		if (!line.empty()) std::stringstream(line) >> keepExtraData;
+		std::cout << std::endl;
+	}
+	else
+		keepExtraData = false;
+
 	weightlayers = createLayerCollection(0, FULL_NETWORK);
 	initializeLayers(&weightlayers);
 	if (!loadWeights(weightlayers, weightfname)) {
@@ -164,7 +181,14 @@ int main() {
 		currentLineNum = 1;
 		while (readIntervalData(&datafile, &intervalData, &iBegin, &iEnd)) {
 			if (print)
-				std::cout << "Interval #" << inum << " (" << datafname << " " << iBegin << "-" << iEnd << ") | " << std::endl;
+				std::cout << "Interval #" << inum << " (" << datafname << " " << iBegin << "-" << iEnd << ") ";
+			if (keepExtraData) {
+				std::cout << "Extra data: ";
+				for (size_t i = 0; i < extraData.size(); i++) {
+					std::cout << extraData[i] << " ";
+				}
+			}
+			std::cout << " | " << std::endl;
 			resultfile << inum << " " << datafname << " " << iBegin << " " << iEnd << " ";
 			saveIntervalResult(&resultfile, &intervalData, print);
 			inum++;
@@ -188,8 +212,12 @@ bool readIntervalData(std::ifstream* datafile, std::vector<std::vector<IOPair>>*
 
 	size_t i;
 	for (i = 0; i < intervalSize && std::getline((*datafile), line); i++) {
-		if (end > 0 && currentLineNum > end)
-			break;
+		if (end > 0 && currentLineNum > end) {
+			if (!discardIntervalRemainder)
+				break;
+			else
+				return false;
+		}
 		currentLineNum++;
 		std::string dum;
 		std::stringstream liness(line);
@@ -311,6 +339,11 @@ void saveIntervalResult(std::ofstream* resultfile, std::vector<std::vector<IOPai
 		(*resultfile) << newmean << " " << newstdev << " ";
 		columnnum++;
 	}
+	if (keepExtraData) {
+		for (size_t i = 0; i < extraData.size(); i++) {
+			(*resultfile) << extraData[i] << " ";
+		}
+	}
 	(*resultfile) << std::endl;
 }
 
@@ -324,6 +357,12 @@ bool readIntervalParameters(std::ifstream* intervalfile) {
 		lss >> datafname >> column >> begin >> end;
 		columns.clear();
 		columns.push_back(column);
+		extraData.clear();
+		if (keepExtraData) {
+			std::string dum;
+			while (lss >> dum)
+				extraData.push_back(dum);
+		}
 	}
 	return !done;
 }
