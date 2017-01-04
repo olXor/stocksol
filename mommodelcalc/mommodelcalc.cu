@@ -188,7 +188,8 @@ int main() {
 					std::cout << extraData[i] << " ";
 				}
 			}
-			std::cout << " | " << std::endl;
+			if (print)
+				std::cout << " | " << std::endl;
 			resultfile << inum << " " << datafname << " " << iBegin << " " << iEnd << " ";
 			saveIntervalResult(&resultfile, &intervalData, print);
 			inum++;
