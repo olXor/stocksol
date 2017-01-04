@@ -291,10 +291,10 @@ void saveIntervalResult(std::ofstream* resultfile, std::vector<std::vector<IOPai
 	disableDropout();
 	generateDropoutMask(&weightlayers);
 
-	std::vector<float> sampleoutputs;
-	
 	size_t columnnum = 1;
 	for (size_t c = 0; c < columns.size(); c++) {
+		std::vector<float> sampleoutputs;
+	
 		for (size_t i = 0; i < (*intervalData)[c].size(); i++) {
 			//----calculate----
 			checkCudaErrors(cudaMemcpy(d_inputs, &(*intervalData)[c][i].inputs[0], NUM_INPUTS*sizeof(float), cudaMemcpyHostToDevice));
