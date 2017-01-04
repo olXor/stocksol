@@ -336,7 +336,7 @@ void saveIntervalResult(std::ofstream* resultfile, std::vector<std::vector<IOPai
 		if (usingIntervalFile)
 			(*resultfile) << columns[c] << " ";
 
-		(*resultfile) << newmean << " " << newstdev << " ";
+		(*resultfile) << newmean << " " << newstdev << " " << numTotalPoints-numOutliersDiscarded << " " << numTotalPoints << " ";
 		columnnum++;
 	}
 	if (keepExtraData) {
