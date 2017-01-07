@@ -21,7 +21,7 @@ extern size_t NUM_INPUTS;
 
 #define STEPFACTOR 1e-4f
 
-//#define LOCAL
+#define LOCAL
 
 extern float INITIAL_OUTPUT_AVERAGE;
 

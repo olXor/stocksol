@@ -1,6 +1,5 @@
 #include "stockrun.cuh"
 
-
 #ifdef LOCAL
 #define datastring "rawdata/"
 #define savestring "saveweights/"
@@ -24,6 +23,9 @@ size_t ranTrainCrossGapSize = 0;
 
 void randomizeDataSet(std::vector<IOPair>* trainset, size_t maxIndex = 0);
 void saveExplicitDataSet(std::vector<IOPair>* trainset, std::string learnsetname);
+void saveCrossTestSegment(std::string filename, size_t cvnum, size_t testBegin, size_t testEnd);
+
+bool saveRanTrainCrossTestSegments = true;
 
 int main() {
 	srand((size_t)time(NULL));
@@ -89,6 +91,9 @@ int main() {
 				return 0;
 			}
 
+			if (saveRanTrainCrossTestSegments && !ranTrainUseSampleFile) {
+				saveCrossTestSegment(trainstring, i+1, testBegin, testEnd);
+			}
 			std::cout << "Set #" << i + 1 << ": Train Gap from " << trainGapBegin << "-" << trainGapEnd << " Test Set from " << testBegin << "-" << testEnd << std::endl;
 
 			for (size_t j = 0; j < fullset->size(); j++) {
@@ -144,6 +149,8 @@ void loadLocalParameters(std::string parName) {
 			lss >> numRanTrainCrossSets;
 		else if (var == "ranTrainCrossGapSize")
 			lss >> ranTrainCrossGapSize;
+		else if (var == "saveRanTrainCrossTestSegments")
+			lss >> saveRanTrainCrossTestSegments;
 	}
 }
 
@@ -169,5 +176,23 @@ void saveExplicitDataSet(std::vector<IOPair>* trainset, std::string learnsetname
 			outfile << (*trainset)[i].inputs[j] << " ";
 		}
 		outfile << std::endl;
+	}
+}
+
+void saveCrossTestSegment(std::string filename, size_t cvnum, size_t testBegin, size_t testEnd) {
+	testEnd += NUM_INPUTS-1;	//to change from intervals to data points
+	std::stringstream fss;
+	fss << datastring << filename;
+	std::ifstream infile(fss.str());
+	std::stringstream outss;
+	outss << datastring << filename << "CrossTest" << cvnum;
+	std::ofstream outfile(outss.str());
+
+	std::string line;
+	size_t linenum = 0;
+	while (getline(infile, line)) {
+		linenum++;
+		if (linenum > testBegin && linenum < testEnd)
+			outfile << line << std::endl;
 	}
 }

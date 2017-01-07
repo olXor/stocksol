@@ -61,6 +61,8 @@ void printSelectionCriteria(SelectionCriteria crit);
 void generateSubnetResults();
 void evaluateMaxBinSelection(size_t bin, size_t numSubnetsToSelect, bool print);
 
+size_t numSelectCrossValSets = 0;
+
 int main() {
 	srand((size_t)time(NULL));
 
@@ -84,80 +86,91 @@ int main() {
 
 	longsubnets.resize(numSubnets);
 	shortsubnets.resize(numSubnets);
-	for (size_t i = 0; i < numSubnets; i++) {
-		if (longSelection) {
-			longsubnets[i] = createLayerCollection(0, getLCType());
-			initializeLayers(&longsubnets[i]);
+	for (size_t cv = 0; cv < numSelectCrossValSets || numSelectCrossValSets == 0; cv++) {
+		for (size_t i = 0; i < numSubnets; i++) {
+			if (longSelection) {
+				longsubnets[i] = createLayerCollection(0, getLCType());
+				initializeLayers(&longsubnets[i]);
 
-			std::stringstream wss;
-			wss << savename << "long" << i + 1;
-			std::cout << "Loading subnet " << wss.str().c_str() << std::endl;
-			if (!loadWeights(longsubnets[i], wss.str().c_str())) {
-				std::cout << "couldn't find long weights file #" << i + 1 << std::endl;
+				std::stringstream wss;
+				wss << savename << "long";
+				if (numSelectCrossValSets != 0)
+					wss << cv + 1 << "-";
+				wss << i + 1;
+				std::cout << "Loading subnet " << wss.str().c_str() << std::endl;
+				if (!loadWeights(longsubnets[i], wss.str().c_str())) {
+					std::cout << "couldn't find long weights file #" << i + 1 << std::endl;
 #ifdef LOCAL
-				system("pause");
+					system("pause");
 #endif
-				return 0;
+					return 0;
+				}
+			}
+			if (shortSelection) {
+				shortsubnets[i] = createLayerCollection(0, getLCType());
+				initializeLayers(&shortsubnets[i]);
+
+				std::stringstream wss;
+				wss << savename << "short";
+				if (numSelectCrossValSets != 0)
+					wss << cv + 1 << "-";
+				wss << i + 1;
+				std::cout << "Loading subnet " << wss.str().c_str() << std::endl;
+				if (!loadWeights(shortsubnets[i], wss.str().c_str())) {
+					std::cout << "couldn't find short weights file #" << i + 1 << std::endl;
+#ifdef LOCAL
+					system("pause");
+#endif
+					return 0;
+				}
 			}
 		}
-		if (shortSelection) {
-			shortsubnets[i] = createLayerCollection(0, getLCType());
-			initializeLayers(&shortsubnets[i]);
 
-			std::stringstream wss;
-			wss << savename << "short" << i + 1;
-			std::cout << "Loading subnet " << wss.str().c_str() << std::endl;
-			if (!loadWeights(shortsubnets[i], wss.str().c_str())) {
-				std::cout << "couldn't find short weights file #" << i + 1 << std::endl;
-#ifdef LOCAL
-				system("pause");
-#endif
-				return 0;
+		SelectionCriteria currentCrit;
+		if (!loadSelectionCriteria(&currentCrit)) {
+			if (randomizeSelectOptimizationStartPoint)
+				currentCrit = getRandomSelectionCriteria();
+			else {
+				currentCrit.minSubnetSelect = minSubnetSelect;
+				currentCrit.oppositeMinSubnetSelect = oppositeMinSubnetSelect;
+				currentCrit.testSelectBinMins = testSelectBinMins;
+				currentCrit.testSelectBinMaxes = testSelectBinMaxes;
+				currentCrit.oppositeSelectBinMins = oppositeSelectBinMins;
+				currentCrit.oppositeSelectBinMaxes = oppositeSelectBinMaxes;
 			}
 		}
-	}
 
-	SelectionCriteria currentCrit;
-	if (!loadSelectionCriteria(&currentCrit)) {
-		if (randomizeSelectOptimizationStartPoint)
-			currentCrit = getRandomSelectionCriteria();
+		std::cout << "Generating subnet results";
+		if (numSelectCrossValSets != 0)
+			std::cout << " for CV set " << cv;
+		std::cout << ": ";
+		auto genstart = std::chrono::high_resolution_clock::now();
+		generateSubnetResults();
+		auto genelapsed = std::chrono::high_resolution_clock::now() - genstart;
+		long long gentime = std::chrono::duration_cast<std::chrono::microseconds>(genelapsed).count();
+		std::cout << " (" << gentime / 1000000 << " s)" << std::endl;
+
+		if (selectBasedOnMaxBin) {
+			std::cout << "Printing results by required number of agreeing bins." << std::endl;
+			for (size_t i = 0; i <= numSubnets; i++) {
+				evaluateMaxBinSelection(binToSelectOn, i, true);
+			}
+		}
 		else {
-			currentCrit.minSubnetSelect = minSubnetSelect;
-			currentCrit.oppositeMinSubnetSelect = oppositeMinSubnetSelect;
-			currentCrit.testSelectBinMins = testSelectBinMins;
-			currentCrit.testSelectBinMaxes = testSelectBinMaxes;
-			currentCrit.oppositeSelectBinMins = oppositeSelectBinMins;
-			currentCrit.oppositeSelectBinMaxes = oppositeSelectBinMaxes;
-		}
-	}
+			float currentBest = -999999.0f;
+			SelectionCriteria testCrit = currentCrit;
+			while (true) {
+				float testEval = evaluateSelectionCriteria(testCrit, false);
 
-	std::cout << "Generating subnet results: ";
-	auto genstart = std::chrono::high_resolution_clock::now();
-	generateSubnetResults();
-	auto genelapsed = std::chrono::high_resolution_clock::now() - genstart;
-	long long gentime = std::chrono::duration_cast<std::chrono::microseconds>(genelapsed).count();
-	std::cout << " (" << gentime / 1000000 << " s)" << std::endl;
-
-	if (selectBasedOnMaxBin) {
-		std::cout << "Printing results by required number of agreeing bins." << std::endl;
-		for (size_t i = 0; i <= numSubnets; i++) {
-			evaluateMaxBinSelection(binToSelectOn, i, true);
-		}
-	}
-	else {
-		float currentBest = -999999.0f;
-		SelectionCriteria testCrit = currentCrit;
-		while (true) {
-			float testEval = evaluateSelectionCriteria(testCrit, false);
-
-			if (testEval > currentBest || currentBest == -999999.0f) {
-				currentBest = testEval;
-				currentCrit = testCrit;
-				printSelectionCriteria(currentCrit);
-				evaluateSelectionCriteria(currentCrit, true);
-				saveSelectionCriteria(currentCrit);
+				if (testEval > currentBest || currentBest == -999999.0f) {
+					currentBest = testEval;
+					currentCrit = testCrit;
+					printSelectionCriteria(currentCrit);
+					evaluateSelectionCriteria(currentCrit, true);
+					saveSelectionCriteria(currentCrit);
+				}
+				testCrit = perturbSelectionCriteria(currentCrit);
 			}
-			testCrit = perturbSelectionCriteria(currentCrit);
 		}
 	}
 
@@ -392,6 +405,8 @@ void loadLocalParameters(std::string parName) {
 			lss >> selectBasedOnMaxBin;
 		else if (var == "binToSelectOn")
 			lss >> binToSelectOn;
+		else if (var == "numSelectCrossValSets")
+			lss >> numSelectCrossValSets;
 	}
 }
 
