@@ -1,6 +1,8 @@
 #include <stockrun.cuh>
 #include "Shlwapi.h"
 
+#define DEBUG_SAVE_INTERNAL_RESULTS
+
 #ifdef LOCAL
 #define datastring "rawdata/"
 #define savestring "saveweights/"
@@ -31,6 +33,10 @@ std::vector<std::list<float>> inputs;
 bool readIntervalParameters(std::ifstream* intervalfile);
 bool readIntervalData(std::ifstream* datafile, std::vector<std::vector<IOPair>>* intervalData, size_t* iBegin, size_t* iEnd);
 void saveIntervalResult(std::ofstream* resultfile, std::vector<std::vector<IOPair>>* intervalData, bool print);
+
+#ifdef DEBUG_SAVE_INTERNAL_RESULTS
+void debugSaveInternalResults();
+#endif
 
 int main() {
 	srand((size_t)time(NULL));
@@ -305,6 +311,9 @@ void saveIntervalResult(std::ofstream* resultfile, std::vector<std::vector<IOPai
 			checkCudaErrors(cudaMemcpy(h_output, weightlayers.fixedMat[weightlayers.numFixedNets - 1].outlayer, numBins*sizeof(float), cudaMemcpyDeviceToHost));
 			//----end calculate-----
 
+#ifdef DEBUG_SAVE_INTERNAL_RESULTS
+			debugSaveInternalResults();
+#endif
 			sampleoutputs.push_back(h_output[0]);
 		}
 
@@ -367,3 +376,44 @@ bool readIntervalParameters(std::ifstream* intervalfile) {
 	}
 	return !done;
 }
+
+#ifdef DEBUG_SAVE_INTERNAL_RESULTS
+void debugSaveInternalResults() {
+	std::stringstream fname;
+	fname << savestring << "debugInternal";
+	std::ofstream outfile(fname.str());
+
+	for (size_t i = 0; i < weightlayers.numConvolutions; i++) {
+		ConvolutionMatrices mat = weightlayers.convMat[i];
+		ConvolutionParameters pars = weightlayers.convPars[i];
+
+		size_t numOutputs = mat.numOutputElements;
+		float* h_outputs  = new float[numOutputs];
+		checkCudaErrors(cudaMemcpy(h_outputs, mat.outlayer, numOutputs*sizeof(float), cudaMemcpyDeviceToHost));
+
+		outfile << "Convolution Layer " << i << ": " << std::endl;
+		for (size_t j = 0; j < pars.numOutputNeurons; j++) {
+			for (size_t k = 0; k < pars.numOutputLocs; k++) {
+				outfile << h_outputs[j + k*pars.numOutputNeurons] << " ";
+			}
+			outfile << std::endl;
+		}
+		outfile << std::endl;
+	}
+
+	for (size_t i = 0; i < weightlayers.numFixedNets; i++) {
+		FixedNetMatrices mat = weightlayers.fixedMat[i];
+		FixedNetParameters pars = weightlayers.fixedPars[i];
+
+		size_t numOutputs = mat.numOutputElements;
+		float* h_outputs  = new float[numOutputs];
+		checkCudaErrors(cudaMemcpy(h_outputs, mat.outlayer, numOutputs*sizeof(float), cudaMemcpyDeviceToHost));
+
+		outfile << "FixedNet Layer " << i << ": " << std::endl;
+		for (size_t j = 0; j < pars.numOutputNeurons; j++) {
+			outfile << h_outputs[j] << " ";
+		}
+		outfile << std::endl;
+	}
+}
+#endif

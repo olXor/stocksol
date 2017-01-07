@@ -31,6 +31,7 @@ float convDropoutWeight = 1.0f;
 float savedConvDropoutWeight = 1.0f;	//for retrieving when dropout is enabled after being disabled
 float fixedDropoutWeight = 1.0f;
 float savedFixedDropoutWeight = 1.0f;
+bool generateDropoutMaskEverySample = false;
 
 size_t numFixedHiddenNeurons = 2 * NUM_NEURONS;
 
@@ -38,6 +39,7 @@ bool sigmoidOnBinnedOutput = false;
 
 float binPositiveOutput = BIN_POSITIVE_OUTPUT;
 float binNegativeOutput = BIN_NEGATIVE_OUTPUT;
+
 
 bool testSelectBinSum = false;
 std::vector<float> testSelectBinMins;
@@ -179,6 +181,8 @@ float runSim(LayerCollection layers, bool train, float customStepFactor, size_t 
 
 	for (size_t i = 0; i < trainSamplesNum; i++) {
 		numerrors++;
+		if (generateDropoutMaskEverySample && train)
+			generateDropoutMask(&layers);
 
 		//----calculate----
 		checkCudaErrors(cudaMemcpyAsync(d_inputs, &(*dataset)[i].inputs[0], NUM_INPUTS*sizeof(float), cudaMemcpyHostToDevice, mainStream));
@@ -1723,12 +1727,14 @@ void loadParameters(std::string parName) {
 			}
 		}
 		else if (var == "testSelectBinMaxes") {
-			while(!lss.eof()) {
+			while (!lss.eof()) {
 				float binMax = 99999.0f;
 				lss >> binMax;
 				testSelectBinMaxes.push_back(binMax);
 			}
 		}
+		else if (var == "generateDropoutMaskEverySample")
+			lss >> generateDropoutMaskEverySample;
 	}
 
 	if (binnedOutput)

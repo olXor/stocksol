@@ -452,6 +452,7 @@ C:\Program Files (x86)\Microsoft Visual Studio 12.0\VC\include\crtdefs.h
 C:\Program Files (x86)\Microsoft Visual Studio 12.0\VC\include\locale.h
 C:\Program Files (x86)\Microsoft Visual Studio 12.0\VC\include\crtdefs.h
 C:\Program Files (x86)\Microsoft Visual Studio 12.0\VC\include\xdebug
+C:\Program Files (x86)\Microsoft Visual Studio 12.0\VC\include\xmemory
 C:\Program Files (x86)\Microsoft Visual Studio 12.0\VC\include\xfacet
 C:\Program Files (x86)\Microsoft Visual Studio 12.0\VC\include\system_error
 C:\Program Files (x86)\Microsoft Visual Studio 12.0\VC\include\cerrno
@@ -462,7 +463,6 @@ C:\Program Files (x86)\Microsoft Visual Studio 12.0\VC\include\string
 C:\Program Files (x86)\Microsoft Visual Studio 12.0\VC\include\iterator
 c:\users\thomas\documents\mobaxterm\home\cudastock\stocksol\stockproj\params.h
 C:\Program Files (x86)\Microsoft Visual Studio 12.0\VC\include\vector
-C:\Program Files (x86)\Microsoft Visual Studio 12.0\VC\include\xmemory
 c:\users\thomas\documents\mobaxterm\home\cudastock\stocksol\stockproj\kernel.cuh
 C:\Program Files\NVIDIA GPU Computing Toolkit\CUDA\v7.5\include\cuda_runtime.h
 C:\Program Files\NVIDIA GPU Computing Toolkit\CUDA\v7.5\include\device_launch_parameters.h
