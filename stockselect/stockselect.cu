@@ -50,7 +50,7 @@ float selectionEvaluationProfitPower = 2.0f;
 
 float selectPerturbSigma = 2.0f;
 
-size_t readData(size_t begin, size_t numIOs);
+size_t readData(std::string fname, size_t begin, size_t numIOs);
 float evaluateSelectionCriteria(SelectionCriteria crit, bool print);
 SelectionCriteria getRandomSelectionCriteria();
 SelectionCriteria perturbSelectionCriteria(SelectionCriteria crit);
@@ -62,6 +62,8 @@ void generateSubnetResults();
 void evaluateMaxBinSelection(size_t bin, size_t numSubnetsToSelect, bool print);
 
 size_t numSelectCrossValSets = 0;
+
+bool selectOnMinBackupWeights = true;
 
 int main() {
 	srand((size_t)time(NULL));
@@ -82,22 +84,34 @@ int main() {
 
 	setStrings(datastring, savestring);
 
-	readData(testBegin, testNumIOs);
 
 	longsubnets.resize(numSubnets);
 	shortsubnets.resize(numSubnets);
 	for (size_t cv = 0; cv < numSelectCrossValSets || numSelectCrossValSets == 0; cv++) {
+		std::string fname = selecttestfile;
+		if (numSelectCrossValSets != 0) {
+			std::stringstream fss;
+			fss << selecttestfile << cv + 1;
+			fname = fss.str();
+		}
+		readData(fname, testBegin, testNumIOs);
+		std::cout << "Loading subnets for CV set " << cv + 1 << ": ";
 		for (size_t i = 0; i < numSubnets; i++) {
 			if (longSelection) {
 				longsubnets[i] = createLayerCollection(0, getLCType());
 				initializeLayers(&longsubnets[i]);
 
 				std::stringstream wss;
-				wss << savename << "long";
+				if (selectOnMinBackupWeights)
+					wss << "backup/";
+				wss << savename;
+				wss << "long";
 				if (numSelectCrossValSets != 0)
 					wss << cv + 1 << "-";
 				wss << i + 1;
-				std::cout << "Loading subnet " << wss.str().c_str() << std::endl;
+				if (selectOnMinBackupWeights)
+					wss << "Min";
+				//std::cout << "Loading subnet " << wss.str().c_str() << std::endl;
 				if (!loadWeights(longsubnets[i], wss.str().c_str())) {
 					std::cout << "couldn't find long weights file #" << i + 1 << std::endl;
 #ifdef LOCAL
@@ -111,11 +125,16 @@ int main() {
 				initializeLayers(&shortsubnets[i]);
 
 				std::stringstream wss;
-				wss << savename << "short";
+				if (selectOnMinBackupWeights)
+					wss << "backup/";
+				wss << savename;
+				wss << "short";
 				if (numSelectCrossValSets != 0)
 					wss << cv + 1 << "-";
 				wss << i + 1;
-				std::cout << "Loading subnet " << wss.str().c_str() << std::endl;
+				if (selectOnMinBackupWeights)
+					wss << "Min";
+				//std::cout << "Loading subnet " << wss.str().c_str() << std::endl;
 				if (!loadWeights(shortsubnets[i], wss.str().c_str())) {
 					std::cout << "couldn't find short weights file #" << i + 1 << std::endl;
 #ifdef LOCAL
@@ -125,6 +144,7 @@ int main() {
 				}
 			}
 		}
+		std::cout << "done" << std::endl;
 
 		SelectionCriteria currentCrit;
 		if (!loadSelectionCriteria(&currentCrit)) {
@@ -142,7 +162,7 @@ int main() {
 
 		std::cout << "Generating subnet results";
 		if (numSelectCrossValSets != 0)
-			std::cout << " for CV set " << cv;
+			std::cout << " for CV set " << cv+1;
 		std::cout << ": ";
 		auto genstart = std::chrono::high_resolution_clock::now();
 		generateSubnetResults();
@@ -407,19 +427,21 @@ void loadLocalParameters(std::string parName) {
 			lss >> binToSelectOn;
 		else if (var == "numSelectCrossValSets")
 			lss >> numSelectCrossValSets;
+		else if (var == "selectOnMinBackupWeights")
+			lss >> selectOnMinBackupWeights;
 	}
 }
 
 //long outputs are stored in "correctoutput" and short in "secondaryoutput"
-size_t readData(size_t begin, size_t numIOs) {
+size_t readData(std::string fname, size_t begin, size_t numIOs) {
 	if (numIOs > 0)
-		std::cout << "Reading " << numIOs << " samples from data set: ";
+		std::cout << "Reading " << numIOs << " samples from data set " << fname << ": ";
 	else
-		std::cout << "Reading all samples from data set: ";
+		std::cout << "Reading all samples from data set " << fname << ": ";
 
 	auto readstart = std::chrono::high_resolution_clock::now();
 	size_t totalSamples;
-	totalSamples = readTwoPriceTrainSet(selecttestfile, begin, numIOs);
+	totalSamples = readTwoPriceTrainSet(fname, begin, numIOs);
 
 	auto readelapsed = std::chrono::high_resolution_clock::now() - readstart;
 	long long readtime = std::chrono::duration_cast<std::chrono::microseconds>(readelapsed).count();

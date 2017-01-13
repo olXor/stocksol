@@ -79,6 +79,8 @@ size_t numTrainCrossValSets = 0;
 
 void moveSaveToStallBackup();
 
+size_t resultSaveSampleNumStart = 0;
+
 float annealingMultiplier() {
 	if (lastErrors.size() == 0 || annealingStartError == 0)
 		return 1;
@@ -292,26 +294,6 @@ int main() {
 
 			bool belowStallThresh = false;
 			while (true) {
-				if (trainSamples == totalSamples && ((numRunsOnFullTrainset != 0 && numRuns - numRunSetStart >= numRunsOnFullTrainset) || (lastErrors.back() <= fullTrainsetErrorGoal))) {
-					std::cout << "Run completed after " << numRuns - numRunSetStart << " rounds on full trainset" << std::endl;
-					break;
-				}
-				if (!belowStallThresh && trainSamples == totalSamples && ((stallRestartThreshold != 0 && lastErrors.back() < stallRestartThreshold) || (minTestErrorStallRestartThreshold != 0 && minTestError < minTestErrorStallRestartThreshold))) {
-					belowStallThresh = true;
-				}
-				if (!belowStallThresh && trainSamples == totalSamples && numRunsToStallRestart > 0 && numRuns - numRunSetStart >= numRunsToStallRestart) {
-					std::cout << "Passed stall threshold after " << numRuns - numRunSetStart << " rounds, restarting with new weights." << std::endl;
-					moveSaveToStallBackup();
-					if (numTrainCrossValSets != 0 && cv > 0)
-						cv--;
-					else {
-						bagNum--;
-						if (numTrainCrossValSets != 0)
-							cv = numTrainCrossValSets - 1;
-					}
-					skipDataSetLoad = true;
-					break;
-				}
 
 				if (pairedTraining)
 					std::cout << nIter << "+1 runs on " << numSamples << " sample pairs";
@@ -420,7 +402,8 @@ int main() {
 					saveWeights(layers, savename);
 				numRuns += nIter;
 
-				saveResults(numRuns, afterError, afterSecError, testAfterError, testAfterSecError, testSampleAfterError);
+				if (trainSamples >= resultSaveSampleNumStart)
+					saveResults(numRuns, afterError, afterSecError, testAfterError, testAfterSecError, testSampleAfterError);
 
 				if (trainSamples >= backupSampleNumStart && backupInterval > 0 && (numRuns - numRunSetStart) % backupInterval == 0) {
 					std::stringstream bss;
@@ -446,6 +429,27 @@ int main() {
 					backupFiles(bss.str().c_str());
 				}
 
+				if (trainSamples == totalSamples && ((numRunsOnFullTrainset != 0 && numRuns - numRunSetStart >= numRunsOnFullTrainset) || (lastErrors.back() <= fullTrainsetErrorGoal))) {
+					std::cout << "Run completed after " << numRuns - numRunSetStart << " rounds on full trainset" << std::endl;
+					break;
+				}
+				if (!belowStallThresh && trainSamples == totalSamples && ((stallRestartThreshold != 0 && lastErrors.back() < stallRestartThreshold) || (minTestErrorStallRestartThreshold != 0 && minTestError < minTestErrorStallRestartThreshold))) {
+					belowStallThresh = true;
+				}
+				if (!belowStallThresh && trainSamples == totalSamples && numRunsToStallRestart > 0 && numRuns - numRunSetStart >= numRunsToStallRestart) {
+					std::cout << "Passed stall threshold after " << numRuns - numRunSetStart << " rounds, restarting with new weights." << std::endl;
+					moveSaveToStallBackup();
+					if (numTrainCrossValSets != 0 && cv > 0)
+						cv--;
+					else {
+						bagNum--;
+						if (numTrainCrossValSets != 0)
+							cv = numTrainCrossValSets - 1;
+					}
+					skipDataSetLoad = true;
+					break;
+				}
+
 				if (primaryAfterError < trainIncreaseThreshold && trainSamples < totalSamples) {
 					saveSetHistory(numSamples, numRuns - numRunSetStart, stepMult);
 					numRunSetStart = numRuns;
@@ -466,8 +470,6 @@ int main() {
 				delete[] afterSecError;
 				delete[] testAfterSecError;
 			}
-			if (!trainStockBAGSet && !(trainSamples == totalSamples && numRunsToStallRestart > 0 && numRuns - numRunSetStart >= numRunsToStallRestart))
-				break;
 		}
 	}
 }
@@ -514,6 +516,8 @@ void loadSimVariables() {
 			lss >> trainSamples;
 		if (var == "stepMult")
 			lss >> stepMult;
+		if (var == "stepAdjustment")
+			lss >> stepAdjustment;
 		if (var == "numRunSetStart")
 			lss >> numRunSetStart;
 		if (var == "minTestError")
@@ -529,6 +533,7 @@ void saveSimVariables() {
 	outfile << "numRuns " << numRuns << std::endl;
 	outfile << "trainSamples " << trainSamples << std::endl;
 	outfile << "stepMult " << stepMult << std::endl;
+	outfile << "stepAdjustment " << stepAdjustment << std::endl;
 	outfile << "numRunSetStart " << numRunSetStart << std::endl;
 	if (backupMinTestError)
 		outfile << "minTestError " << minTestError << std::endl;
@@ -666,6 +671,8 @@ void loadLocalParameters() {
 			lss >> minTestErrorStallRestartThreshold;
 		else if (var == "backupMinTestErrorSample")
 			lss >> backupMinTestErrorSample;
+		else if (var == "resultSaveSampleNumStart")
+			lss >> resultSaveSampleNumStart;
 	}
 }
 
