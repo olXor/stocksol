@@ -389,7 +389,9 @@ int main() {
 							loadPairedWeights(pairedLayers, savename);
 						else
 							loadWeights(layers, savename);
+						loadSimVariables();
 						stepAdjustment *= redoStepAdjustment;
+						saveSimVariables();
 						continue;
 					}
 					stepAdjustment *= successStepAdjustment;
@@ -429,6 +431,9 @@ int main() {
 					backupFiles(bss.str().c_str());
 				}
 
+				delete[] afterSecError;
+				delete[] testAfterSecError;
+
 				if (trainSamples == totalSamples && ((numRunsOnFullTrainset != 0 && numRuns - numRunSetStart >= numRunsOnFullTrainset) || (lastErrors.back() <= fullTrainsetErrorGoal))) {
 					std::cout << "Run completed after " << numRuns - numRunSetStart << " rounds on full trainset" << std::endl;
 					break;
@@ -466,9 +471,6 @@ int main() {
 				}
 
 				saveSimVariables();
-
-				delete[] afterSecError;
-				delete[] testAfterSecError;
 			}
 		}
 	}

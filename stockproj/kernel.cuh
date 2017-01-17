@@ -113,8 +113,6 @@ struct FixedNetParameters {
 	bool TFOutput = true;
 };
 
-__host__ __device__ float transferFunction(float in);
-__host__ __device__ float transferDerivative(float in);
 __global__ void convolve(ConvolutionMatrices* mat, ConvolutionParameters* pars);
 __global__ void propagateErrorConvolution(ConvolutionMatrices* mat, ConvolutionParameters* pars);
 __global__ void updateWeightsConvolution(ConvolutionMatrices* mat, ConvolutionParameters* pars);
