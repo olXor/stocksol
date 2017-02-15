@@ -150,7 +150,7 @@ __global__ void propagateErrorConvolution(ConvolutionMatrices* mat, ConvolutionP
 	}
 }
 
-__global__ void updateWeightsConvolution(ConvolutionMatrices* mat, ConvolutionParameters* pars) {
+__global__ void updateWeightsConvolution(ConvolutionMatrices* mat, ConvolutionParameters* pars, float stepfactor) {
 	size_t inNeuron = blockIdx.x;
 	size_t outNeuron = blockIdx.y;
 	size_t convLoc = blockIdx.z;
@@ -161,6 +161,9 @@ __global__ void updateWeightsConvolution(ConvolutionMatrices* mat, ConvolutionPa
 	size_t numOutputLocs = pars->numOutputLocs;
 	size_t numInputNeurons = pars->numInputNeurons;
 	size_t numOutputNeurons = pars->numOutputNeurons;
+
+	float L1Reg = pars->L1Reg;
+	float L2Reg = pars->L2Reg;
 
 	extern __shared__ float weightChanges[]; //numOutputLocs
 
@@ -174,16 +177,18 @@ __global__ void updateWeightsConvolution(ConvolutionMatrices* mat, ConvolutionPa
 
 		sumVector(&weightChanges[0], numOutputLocs, outLoc, numOutLocThreads);
 
+		if (outLoc == 0) {
 #ifdef BATCH_MODE
-		mat->outThreshChanges[outNeuron] += weightChanges[0];
+			mat->outThreshChanges[outNeuron] += weightChanges[0];
 #else
 #ifdef MAX_WEIGHT_CHANGE
-		float change = boundChange(weightChanges[0]);
+			float change = boundChange(weightChanges[0]);
 #else
-		float change = weightChanges[0];
+			float change = weightChanges[0];
 #endif
-		mat->outThresholds[outNeuron] += change;
+			mat->outThresholds[outNeuron] += change;
 #endif
+		}
 	}
 
 	//now the weights
@@ -195,6 +200,7 @@ __global__ void updateWeightsConvolution(ConvolutionMatrices* mat, ConvolutionPa
 
 	sumVector(&weightChanges[0], numOutputLocs, outLoc, numOutLocThreads);
 
+	if (outLoc == 0) {
 #ifdef BATCH_MODE
 		mat->weightChanges[inNeuron + outNeuron*numInputNeurons + convLoc*numInputNeurons*numOutputNeurons] -= weightChanges[0];
 #else
@@ -203,8 +209,20 @@ __global__ void updateWeightsConvolution(ConvolutionMatrices* mat, ConvolutionPa
 #else
 		float change = weightChanges[0];
 #endif
-		mat->weights[inNeuron + outNeuron*numInputNeurons + convLoc*numInputNeurons*numOutputNeurons] -= change;
+
+		float regChange = 0.0f;
+		if (L1Reg != 0 || L2Reg != 0) {
+			float curWeight = mat->weights[inNeuron + outNeuron*numInputNeurons + convLoc*numInputNeurons*numOutputNeurons];
+			if (curWeight > 0)
+				regChange -= L1Reg*stepfactor;
+			else
+				regChange += L1Reg*stepfactor;
+			regChange -= L2Reg*stepfactor*curWeight;
+		}
+
+		mat->weights[inNeuron + outNeuron*numInputNeurons + convLoc*numInputNeurons*numOutputNeurons] += regChange - change;
 #endif
+	}
 }
 
 __global__ void calcMaxPool(MaxPoolMatrices* mat, MaxPoolParameters* pars) {
@@ -296,13 +314,16 @@ __global__ void calcFixedNet(FixedNetMatrices* mat, FixedNetParameters* pars) {
 	}
 }
 
-__global__ void bpFixedNet(FixedNetMatrices* mat, FixedNetParameters* pars) {
+__global__ void bpFixedNet(FixedNetMatrices* mat, FixedNetParameters* pars, float stepfactor) {
 	size_t inNeuron = blockIdx.x;
 	size_t outNeuron = threadIdx.x;
 
 	size_t numOutThreads = pars->backBlockX;
 	size_t numInputNeurons = pars->numInputNeurons;
 	size_t numOutputNeurons = pars->numOutputNeurons;
+
+	float L1Reg = pars->L1Reg;
+	float L2Reg = pars->L2Reg;
 
 	//SHARED
 	extern __shared__ float outErrorTDs[]; //numOutputNeurons
@@ -337,7 +358,17 @@ __global__ void bpFixedNet(FixedNetMatrices* mat, FixedNetParameters* pars) {
 #else
 	float change = inNeuronInput * outErrorTDs[outNeuron];
 #endif
-	mat->weights[inNeuron + outNeuron*numInputNeurons] -= change;
+	float regChange = 0.0f;
+	if (L1Reg != 0 || L2Reg != 0) {
+		float curWeight = mat->weights[inNeuron + outNeuron*numInputNeurons];
+		if (curWeight > 0)
+			regChange -= L1Reg*stepfactor;
+		else
+			regChange += L1Reg*stepfactor;
+		regChange -= L2Reg*stepfactor*curWeight;
+	}
+
+	mat->weights[inNeuron + outNeuron*numInputNeurons] += regChange - change;
 #endif
 
 	__syncthreads();

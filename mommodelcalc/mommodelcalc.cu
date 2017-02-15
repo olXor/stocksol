@@ -1,7 +1,7 @@
 #include <stockrun.cuh>
 #include "Shlwapi.h"
 
-#define DEBUG_SAVE_INTERNAL_RESULTS
+//#define DEBUG_SAVE_INTERNAL_RESULTS
 
 #ifdef LOCAL
 #define datastring "rawdata/"

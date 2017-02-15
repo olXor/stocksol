@@ -59,7 +59,7 @@ void saveSelectionCriteria(SelectionCriteria crit);
 bool loadSelectionCriteria(SelectionCriteria* crit);
 void printSelectionCriteria(SelectionCriteria crit);
 void generateSubnetResults();
-void evaluateMaxBinSelection(size_t bin, size_t numSubnetsToSelect, bool print);
+void evaluateMaxBinSelection(size_t bin, size_t numSubnetsToSelect, bool print, float* totalProfits = NULL, float* averageProfits = NULL);
 
 size_t numSelectCrossValSets = 0;
 
@@ -84,9 +84,10 @@ int main() {
 
 	setStrings(datastring, savestring);
 
-
 	longsubnets.resize(numSubnets);
 	shortsubnets.resize(numSubnets);
+	std::vector<std::vector<float>> maxValTotalProfits(numSelectCrossValSets);	//by subnet number
+	std::vector<std::vector<float>> maxValAverageProfits(numSelectCrossValSets);
 	for (size_t cv = 0; cv < numSelectCrossValSets || numSelectCrossValSets == 0; cv++) {
 		std::string fname = selecttestfile;
 		if (numSelectCrossValSets != 0) {
@@ -172,8 +173,10 @@ int main() {
 
 		if (selectBasedOnMaxBin) {
 			std::cout << "Printing results by required number of agreeing bins." << std::endl;
+			maxValTotalProfits[cv].resize(numSubnets + 1);
+			maxValAverageProfits[cv].resize(numSubnets + 1);
 			for (size_t i = 0; i <= numSubnets; i++) {
-				evaluateMaxBinSelection(binToSelectOn, i, true);
+				evaluateMaxBinSelection(binToSelectOn, i, true, &maxValTotalProfits[cv][i], &maxValAverageProfits[cv][i]);
 			}
 		}
 		else {
@@ -191,6 +194,29 @@ int main() {
 				}
 				testCrit = perturbSelectionCriteria(currentCrit);
 			}
+		}
+	}
+
+	if (selectBasedOnMaxBin) {
+		std::cout << "Totals by number of subnets: " << std::endl;
+		for (size_t i = 0; i < numSubnets + 1; i++) {
+			std::cout << i << " Totals: ";
+			float totalTotal = 0;
+			for (size_t j = 0; j < numSelectCrossValSets; j++) {
+				std::cout << maxValTotalProfits[j][i] << " ";
+				totalTotal += maxValTotalProfits[j][i];
+			}
+			std::cout << " Overall: " << totalTotal << "/" << numSelectCrossValSets << "=" << totalTotal / numSelectCrossValSets;
+			std::cout << std::endl;
+
+			std::cout << i << " Averages: ";
+			float totalAverage = 0;
+			for (size_t j = 0; j < numSelectCrossValSets; j++) {
+				std::cout << maxValAverageProfits[j][i] << " ";
+				totalAverage += maxValAverageProfits[j][i];
+			}
+			std::cout << " Overall: " << totalAverage << "/" << numSelectCrossValSets << "=" << totalAverage / numSelectCrossValSets;
+			std::cout << std::endl;
 		}
 	}
 
@@ -580,7 +606,7 @@ bool loadSelectionCriteria(SelectionCriteria* crit) {
 }
 
 //don't do opposite selecting right now
-void evaluateMaxBinSelection(size_t bin, size_t numSubnetsToSelect, bool print) {
+void evaluateMaxBinSelection(size_t bin, size_t numSubnetsToSelect, bool print, float* totalProfits, float* averageProfits) {
 	std::vector<IOPair>* dataset = getTrainSet();
 	float longProfit = 0.0f;
 	float shortProfit = 0.0f;
@@ -602,8 +628,9 @@ void evaluateMaxBinSelection(size_t bin, size_t numSubnetsToSelect, bool print) 
 			}
 
 			if (j < numSubnets) { //LONG
-				if (maxBinWeight > 0.0f && maxBin == bin)
+				if (maxBinWeight > 0.0f && maxBin == bin) {
 					numLongTestSelected++;
+				}
 			}
 			else {
 				if (maxBinWeight > 0.0f && maxBin == bin)
@@ -651,4 +678,9 @@ void evaluateMaxBinSelection(size_t bin, size_t numSubnetsToSelect, bool print) 
 		}
 		std::cout << std::endl;
 	}
+
+	if (totalProfits != NULL)
+		totalProfits[0] = longProfit + shortProfit;
+	if (averageProfits != NULL)
+		averageProfits[0] = (longProfit + shortProfit) / (numLongTrades + numShortTrades);
 }

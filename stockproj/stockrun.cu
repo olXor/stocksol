@@ -40,6 +40,10 @@ bool sigmoidOnBinnedOutput = false;
 float binPositiveOutput = BIN_POSITIVE_OUTPUT;
 float binNegativeOutput = BIN_NEGATIVE_OUTPUT;
 
+float convL1Reg = 0.0f;
+float convL2Reg = 0.0f;
+float fixedL1Reg = 0.0f;
+float fixedL2Reg = 0.0f;
 
 bool testSelectBinSum = false;
 std::vector<float> testSelectBinMins;
@@ -203,7 +207,7 @@ float runSim(LayerCollection layers, bool train, float customStepFactor, size_t 
 		checkCudaErrors(cudaEventRecord(calcDone, mainStream));
 
 		if (train) {
-			backPropagate(layers, mainStream);
+			backPropagate(layers, stepfac, mainStream);
 		}
 
 		checkCudaErrors(cudaEventSynchronize(calcDone));
@@ -417,9 +421,9 @@ float runPairedSim(PairedConvCollection layers, bool train, float customStepFact
 			checkCudaErrors(cudaEventRecord(calcDone, mainStream));
 
 			if (train) {
-				backPropagate(layers.fixed, mainStream);
-				backPropagate(layers.conv1, mainStream);
-				backPropagate(layers.conv2, mainStream);
+				backPropagate(layers.fixed, stepfac, mainStream);
+				backPropagate(layers.conv1, stepfac, mainStream);
+				backPropagate(layers.conv2, stepfac, mainStream);
 			}
 
 			checkCudaErrors(cudaEventSynchronize(calcDone));
@@ -928,7 +932,7 @@ LayerCollection createLayerCollection(size_t numInputs, int LCType) {
 		if (numInputs == 136) {
 			ConvolutionParameters conv0;
 			conv0.numInputLocs = 136;
-			conv0.convSize = 8;
+			conv0.convSize = 8;	//This should be 9, of course; kept this way for backwards compatability now; change asap.
 			conv0.numOutputLocs = 128;
 			conv0.numInputNeurons = 1;
 			conv0.numOutputNeurons = NUM_NEURONS;
@@ -945,6 +949,9 @@ LayerCollection createLayerCollection(size_t numInputs, int LCType) {
 			conv0.backUpdateNBlockX = conv0.numInputNeurons;
 			conv0.backUpdateNBlockY = conv0.numOutputNeurons;
 			conv0.backUpdateNBlockZ = conv0.convSize;
+
+			conv0.L1Reg = convL1Reg;
+			conv0.L2Reg = convL2Reg;
 
 			layers.convPars.push_back(conv0);
 
@@ -984,6 +991,9 @@ LayerCollection createLayerCollection(size_t numInputs, int LCType) {
 		conv1.backUpdateNBlockY = conv1.numOutputNeurons;
 		conv1.backUpdateNBlockZ = conv1.convSize;
 
+		conv1.L1Reg = convL1Reg;
+		conv1.L2Reg = convL2Reg;
+
 		layers.convPars.push_back(conv1);
 
 		MaxPoolParameters mp1;
@@ -1017,6 +1027,9 @@ LayerCollection createLayerCollection(size_t numInputs, int LCType) {
 		conv2.backUpdateNBlockX = conv2.numInputNeurons;
 		conv2.backUpdateNBlockY = conv2.numOutputNeurons;
 		conv2.backUpdateNBlockZ = conv2.convSize;
+
+		conv2.L1Reg = convL1Reg;
+		conv2.L2Reg = convL2Reg;
 
 		layers.convPars.push_back(conv2);
 
@@ -1052,6 +1065,9 @@ LayerCollection createLayerCollection(size_t numInputs, int LCType) {
 		conv3.backUpdateNBlockY = conv3.numOutputNeurons;
 		conv3.backUpdateNBlockZ = conv3.convSize;
 
+		conv3.L1Reg = convL1Reg;
+		conv3.L2Reg = convL2Reg;
+
 		layers.convPars.push_back(conv3);
 
 		MaxPoolParameters mp3;
@@ -1086,6 +1102,9 @@ LayerCollection createLayerCollection(size_t numInputs, int LCType) {
 		conv4.backUpdateNBlockY = conv4.numOutputNeurons;
 		conv4.backUpdateNBlockZ = conv4.convSize;
 
+		conv4.L1Reg = convL1Reg;
+		conv4.L2Reg = convL2Reg;
+
 		layers.convPars.push_back(conv4);
 
 		MaxPoolParameters mp4;
@@ -1117,6 +1136,9 @@ LayerCollection createLayerCollection(size_t numInputs, int LCType) {
 
 		fix1.TFOutput = true;
 
+		fix1.L1Reg = fixedL1Reg;
+		fix1.L2Reg = fixedL2Reg;
+
 		layers.fixedPars.push_back(fix1);
 
 		FixedNetParameters fix2;
@@ -1138,6 +1160,9 @@ LayerCollection createLayerCollection(size_t numInputs, int LCType) {
 		}
 		else
 			fix2.TFOutput = false;
+
+		fix2.L1Reg = fixedL1Reg;
+		fix2.L2Reg = fixedL2Reg;
 
 		layers.fixedPars.push_back(fix2);
 	}
@@ -1157,6 +1182,9 @@ LayerCollection createLayerCollection(size_t numInputs, int LCType) {
 
 		fix1.TFOutput = true;
 
+		fix1.L1Reg = fixedL1Reg;
+		fix1.L2Reg = fixedL2Reg;
+
 		layers.fixedPars.push_back(fix1);
 
 		FixedNetParameters fix2;
@@ -1178,6 +1206,9 @@ LayerCollection createLayerCollection(size_t numInputs, int LCType) {
 		}
 		else
 			fix2.TFOutput = false;
+
+		fix2.L1Reg = fixedL1Reg;
+		fix2.L2Reg = fixedL2Reg;
 
 		layers.fixedPars.push_back(fix2);
 	}
@@ -1211,11 +1242,11 @@ void calculate(LayerCollection layers, cudaStream_t stream) {
 	}
 }
 
-void backPropagate(LayerCollection layers, cudaStream_t stream) {
+void backPropagate(LayerCollection layers, float stepfactor, cudaStream_t stream) {
 	for (size_t j = layers.numFixedNets - 1; j < layers.numFixedNets; j--) {
 		dim3 nBlocks(layers.fixedPars[j].backNBlockX, layers.fixedPars[j].backNBlockY);
 		dim3 shape(layers.fixedPars[j].backBlockX, layers.fixedPars[j].backBlockY);
-		bpFixedNet << <nBlocks, shape, layers.fixedMat[j].backwardSharedMem, stream >> >(layers.d_fixedMat[j], layers.d_fixedPars[j]);
+		bpFixedNet << <nBlocks, shape, layers.fixedMat[j].backwardSharedMem, stream >> >(layers.d_fixedMat[j], layers.d_fixedPars[j], stepfactor);
 		checkCudaErrors(cudaPeekAtLastError());
 	}
 
@@ -1234,7 +1265,7 @@ void backPropagate(LayerCollection layers, cudaStream_t stream) {
 
 		dim3 nBlocks2(layers.convPars[j].backUpdateNBlockX, layers.convPars[j].backUpdateNBlockY, layers.convPars[j].backUpdateNBlockZ);
 		dim3 shape2(layers.convPars[j].backUpdateBlockX);
-		updateWeightsConvolution << <nBlocks2, shape2, layers.convMat[j].backUpdateSharedMem, stream >> >(layers.d_convMat[j], layers.d_convPars[j]);
+		updateWeightsConvolution << <nBlocks2, shape2, layers.convMat[j].backUpdateSharedMem, stream >> >(layers.d_convMat[j], layers.d_convPars[j], stepfactor);
 		checkCudaErrors(cudaPeekAtLastError());
 	}
 }
@@ -1735,6 +1766,14 @@ void loadParameters(std::string parName) {
 		}
 		else if (var == "generateDropoutMaskEverySample")
 			lss >> generateDropoutMaskEverySample;
+		else if (var == "convL1Reg")
+			lss >> convL1Reg;
+		else if (var == "convL2Reg")
+			lss >> convL2Reg;
+		else if (var == "fixedL1Reg")
+			lss >> fixedL1Reg;
+		else if (var == "fixedL2Reg")
+			lss >> fixedL2Reg;
 	}
 
 	if (binnedOutput)

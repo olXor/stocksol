@@ -49,6 +49,9 @@ struct ConvolutionParameters {
 	size_t numOutputNeurons;
 
 	size_t transferType = TRANSFER_TYPE_RECTIFIER;
+
+	float L1Reg = 0.0f;
+	float L2Reg = 0.0f;
 };
 
 struct MaxPoolMatrices {
@@ -111,11 +114,14 @@ struct FixedNetParameters {
 	size_t transferType = TRANSFER_TYPE_RECTIFIER;
 
 	bool TFOutput = true;
+
+	float L1Reg = 0.0f;
+	float L2Reg = 0.0f;
 };
 
 __global__ void convolve(ConvolutionMatrices* mat, ConvolutionParameters* pars);
 __global__ void propagateErrorConvolution(ConvolutionMatrices* mat, ConvolutionParameters* pars);
-__global__ void updateWeightsConvolution(ConvolutionMatrices* mat, ConvolutionParameters* pars);
+__global__ void updateWeightsConvolution(ConvolutionMatrices* mat, ConvolutionParameters* pars, float stepfactor);
 
 size_t getConvolveSharedSize(ConvolutionParameters* pars);
 size_t getBPEConvolutionSharedSize(ConvolutionParameters* pars);
@@ -125,7 +131,7 @@ __global__ void calcMaxPool(MaxPoolMatrices* mat, MaxPoolParameters* pars);
 __global__ void bpMaxPool(MaxPoolMatrices* mat, MaxPoolParameters* pars);
 
 __global__ void calcFixedNet(FixedNetMatrices* mat, FixedNetParameters* pars);
-__global__ void bpFixedNet(FixedNetMatrices* mat, FixedNetParameters* pars);
+__global__ void bpFixedNet(FixedNetMatrices* mat, FixedNetParameters* pars, float stepfactor);
 
 __global__ void calculateOutputError(FixedNetMatrices* mat, float* stepfactor, float* correctoutput, float* hostoutput);
 

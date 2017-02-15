@@ -78,7 +78,7 @@ void copyLayersToDevice(LayerCollection* layers);
 void freeDeviceLayers(LayerCollection* layers);
 
 void calculate(LayerCollection layers, cudaStream_t stream = 0);
-void backPropagate(LayerCollection layers, cudaStream_t stream = 0);
+void backPropagate(LayerCollection layers, float stepfactor, cudaStream_t stream = 0);
 #ifdef BATCH_MODE
 void batchUpdate(LayerCollection layers);
 #endif

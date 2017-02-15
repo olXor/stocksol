@@ -21,6 +21,7 @@ size_t backupSampleNumStart = 0;
 #define RAND_EXPLICIT			//uses a test set with inputs in a random order (specified by randtrainstring)
 
 void saveResults(size_t numRuns, float afterError, float* afterSecError, float testAfterError, float* testAfterSecError, float testSampleAfterError);
+bool loadLastResults(float* afterError, float* afterSecError, float* testAfterError, float* testAfterSecError, float* testSampleAfterError);
 void saveSetHistory(size_t nSamples, size_t nRuns, float stepFacMult);
 void loadLocalParameters();
 void loadSimVariables();
@@ -80,6 +81,8 @@ size_t numTrainCrossValSets = 0;
 void moveSaveToStallBackup();
 
 size_t resultSaveSampleNumStart = 0;
+
+size_t declaredTotalSamples = 0;
 
 float annealingMultiplier() {
 	if (lastErrors.size() == 0 || annealingStartError == 0)
@@ -208,6 +211,34 @@ int main() {
 
 			loadSimVariables();
 
+			float initError;
+			float* initSecError = new float[numSecErrors];
+			for (size_t i = 0; i < numSecErrors; i++)
+				initSecError[i] = 0.0f;
+			float testInitError;
+			float* testInitSecError = new float[numSecErrors];
+			for (size_t i = 0; i < numSecErrors; i++)
+				testInitSecError[i] = 0.0f;
+			float testSampleInitError;
+
+			if (loadLastResults(&initError, initSecError, &testInitError, testInitSecError, &testSampleInitError)) {
+				std::cout << "Loading previous results file:";
+				float prevPrimaryAfterError;
+				if (primaryErrorType == 0)
+					prevPrimaryAfterError = initError;
+				else
+					prevPrimaryAfterError = initSecError[primaryErrorType - 1];
+
+				std::cout << " Last result " << prevPrimaryAfterError << "/" << fullTrainsetErrorGoal << std::endl;
+
+				if (trainSamples >= declaredTotalSamples && ((numRunsOnFullTrainset != 0 && numRuns - numRunSetStart >= numRunsOnFullTrainset) || (prevPrimaryAfterError <= fullTrainsetErrorGoal))) {
+					std::cout << "Run completed after " << numRuns - numRunSetStart << " rounds on full trainset" << std::endl;
+					continue;
+				}
+			}
+			else
+				std::cout << "No previous results found" << std::endl;
+
 			LayerCollection layers;
 			PairedConvCollection pairedLayers;
 			if (pairedTraining) {
@@ -240,16 +271,6 @@ int main() {
 			skipDataSetLoad = false;
 
 			std::cout << "Calculating initial error: ";
-			float initError;
-			float* initSecError = new float[numSecErrors];
-			for (size_t i = 0; i < numSecErrors; i++)
-				initSecError[i] = 0.0f;
-			float testInitError;
-			float* testInitSecError = new float[numSecErrors];
-			for (size_t i = 0; i < numSecErrors; i++)
-				testInitSecError[i] = 0.0f;
-			float testSampleInitError;
-
 			disableDropout();
 			auto initstart = std::chrono::high_resolution_clock::now();
 			if (pairedTraining)
@@ -495,6 +516,32 @@ void saveResults(size_t numRuns, float afterError, float* afterSecError, float t
 	resfile << std::endl;
 }
 
+bool loadLastResults(float* afterError, float* afterSecError, float* testAfterError, float* testAfterSecError, float* testSampleAfterError) {
+	std::stringstream resname;
+	resname << savestring << savename << "result";
+	std::ifstream resfile(resname.str().c_str());
+
+	bool resultsExist = false;
+	std::string line;
+	while (getline(resfile, line)) {
+		resultsExist = true;
+		std::stringstream lss(line);
+		std::string dum;
+		lss >> dum;	//numRuns
+		lss >> afterError[0];
+		for (size_t i = 0; i < numSecErrors; i++) {
+			lss >> afterSecError[i];
+		}
+		lss >> testAfterError[0];
+		for (size_t i = 0; i < numSecErrors; i++) {
+			lss >> testAfterSecError[i];
+		}
+		if (testUseSampleFile)
+			lss >> testSampleAfterError[0];
+	}
+	return resultsExist;
+}
+
 void saveSetHistory(size_t nSamples, size_t nRuns, float stepFacMult) {
 	std::stringstream hisname;
 	hisname << savestring << savename << "history";
@@ -675,6 +722,8 @@ void loadLocalParameters() {
 			lss >> backupMinTestErrorSample;
 		else if (var == "resultSaveSampleNumStart")
 			lss >> resultSaveSampleNumStart;
+		else if (var == "declaredTotalSamples")
+			lss >> declaredTotalSamples;
 	}
 }
 

@@ -19,6 +19,8 @@ Project("{8BC9CEB8-8B4A-11D0-8D11-00A0C91BC942}") = "stockselect", "stockselect\
 EndProject
 Project("{8BC9CEB8-8B4A-11D0-8D11-00A0C91BC942}") = "mommodelcalc", "mommodelcalc\mommodelcalc.vcxproj", "{6CF98097-151C-427A-9B8A-BD7578AF693A}"
 EndProject
+Project("{8BC9CEB8-8B4A-11D0-8D11-00A0C91BC942}") = "stockcombine", "stockcombine\stockcombine.vcxproj", "{BBC3E9B1-BF7F-4633-969B-177FB31F9F66}"
+EndProject
 Global
 	GlobalSection(SolutionConfigurationPlatforms) = preSolution
 		Debug|ARM = Debug|ARM
@@ -109,6 +111,16 @@ Global
 		{6CF98097-151C-427A-9B8A-BD7578AF693A}.Release|Win32.Build.0 = Release|Win32
 		{6CF98097-151C-427A-9B8A-BD7578AF693A}.Release|x64.ActiveCfg = Release|x64
 		{6CF98097-151C-427A-9B8A-BD7578AF693A}.Release|x64.Build.0 = Release|x64
+		{BBC3E9B1-BF7F-4633-969B-177FB31F9F66}.Debug|ARM.ActiveCfg = Debug|Win32
+		{BBC3E9B1-BF7F-4633-969B-177FB31F9F66}.Debug|Win32.ActiveCfg = Debug|Win32
+		{BBC3E9B1-BF7F-4633-969B-177FB31F9F66}.Debug|Win32.Build.0 = Debug|Win32
+		{BBC3E9B1-BF7F-4633-969B-177FB31F9F66}.Debug|x64.ActiveCfg = Debug|x64
+		{BBC3E9B1-BF7F-4633-969B-177FB31F9F66}.Debug|x64.Build.0 = Debug|x64
+		{BBC3E9B1-BF7F-4633-969B-177FB31F9F66}.Release|ARM.ActiveCfg = Release|Win32
+		{BBC3E9B1-BF7F-4633-969B-177FB31F9F66}.Release|Win32.ActiveCfg = Release|Win32
+		{BBC3E9B1-BF7F-4633-969B-177FB31F9F66}.Release|Win32.Build.0 = Release|Win32
+		{BBC3E9B1-BF7F-4633-969B-177FB31F9F66}.Release|x64.ActiveCfg = Release|x64
+		{BBC3E9B1-BF7F-4633-969B-177FB31F9F66}.Release|x64.Build.0 = Release|x64
 	EndGlobalSection
 	GlobalSection(SolutionProperties) = preSolution
 		HideSolutionNode = FALSE
