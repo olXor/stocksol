@@ -3,8 +3,6 @@
 
 #include <vector>
 
-//#define BATCH_MODE
-
 extern size_t NUM_INPUTS;
 #define NUM_NEURONS 32
 

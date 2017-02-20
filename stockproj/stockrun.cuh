@@ -115,4 +115,7 @@ bool discardInput(float* inputs);
 
 float mean(std::vector<float> in);
 float stdev(std::vector<float> in, float mean);
+
+void markTime();
+long long getTimeSinceMark();
 #endif

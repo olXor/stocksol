@@ -51,9 +51,21 @@ std::vector<float> testSelectBinMaxes;
 std::vector<float> oppositeSelectBinMins;
 std::vector<float> oppositeSelectBinMaxes;
 
+std::chrono::system_clock::time_point markedStartTime;
+
 void setStrings(std::string data, std::string save) {
 	datastring = data;
 	savestring = save;
+}
+
+void markTime() {
+	markedStartTime = std::chrono::high_resolution_clock::now();
+}
+
+long long getTimeSinceMark() {
+	auto elapsed = std::chrono::high_resolution_clock::now() - markedStartTime;
+	long long time = std::chrono::duration_cast<std::chrono::microseconds>(elapsed).count();
+	return time / 1000000;
 }
 
 size_t readTrainSet(std::string learnsetname, size_t begin, size_t numIOs, bool overrideBinningSwitch, bool runOnTestSet) {

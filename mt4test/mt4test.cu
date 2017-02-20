@@ -19,23 +19,31 @@ struct SelectionCriteria {
 	std::vector<float> oppositeSelectBinMaxes;
 };
 
-size_t numSubnets = 1;
+std::vector<std::vector<LayerCollection>> longsubnets;
+std::vector<std::vector<LayerCollection>> shortsubnets;
 
-std::vector<LayerCollection> longsubnets;
-std::vector<LayerCollection> shortsubnets;
-
-std::vector<float*> d_inputs;
-std::vector<float*> h_outputs;
+std::vector<std::vector<float*>> d_inputs;
+std::vector<std::vector<float*>> h_outputs;
 
 std::deque<float> inputqueue;
+
+size_t numCombineCVSets = 1;
+size_t numCombineSubnets = 1;
+
+size_t combineNetsSelectPerCV = 7;
+size_t finalCombineCVsToSelect = 5;
+
+bool combineWithMinBackupWeights = true;
+
+size_t binToCombineOn = 4;
 
 HANDLE createPipe(std::string name);
 void connectPipe(HANDLE pipe);
 bool sendString(HANDLE pipe, const char* data);
 bool readString(HANDLE pipe, char* buffer, int size);
-bool evaluateInput(HANDLE pipe, SelectionCriteria crit);
+bool evaluateInput(HANDLE pipe);
 void createSubnetInputOutput();
-size_t selectTrade(std::vector<float> inputs, SelectionCriteria crit);
+size_t selectTrade(std::vector<float> inputs);
 bool loadSelectionCriteria(SelectionCriteria* crit);
 void loadLocalParameters(std::string parName);
 
@@ -50,34 +58,60 @@ int main() {
 #endif
 	setStrings(datastring, savestring);
 
-	longsubnets.resize(numSubnets);
-	shortsubnets.resize(numSubnets);
-	for (size_t i = 0; i < numSubnets; i++) {
-		longsubnets[i] = createLayerCollection(0, getLCType());
-		initializeLayers(&longsubnets[i]);
+	longsubnets.resize(numCombineCVSets);
+	shortsubnets.resize(numCombineCVSets);
+	for (size_t i = 0; i < numCombineCVSets; i++) {
+		longsubnets[i].resize(numCombineSubnets);
+		shortsubnets[i].resize(numCombineSubnets);
+	}
 
-		std::stringstream lss;
-		lss << savename << "long" << i + 1;
-		if (!loadWeights(longsubnets[i], lss.str().c_str())) {
-			std::cout << "couldn't find long weights file #" << i + 1 << std::endl;
-#ifdef LOCAL
-			system("pause");
-#endif
-			return 0;
-		}
-		shortsubnets[i] = createLayerCollection(0, getLCType());
-		initializeLayers(&shortsubnets[i]);
+	std::cout << "Loading subnets: ";
+	for (size_t cv = 0; cv < numCombineCVSets || numCombineCVSets == 0; cv++) {
+		for (size_t sub = 0; sub < numCombineSubnets; sub++) {
+			longsubnets[cv][sub] = createLayerCollection(0, getLCType());
+			initializeLayers(&longsubnets[cv][sub]);
 
-		std::stringstream sss;
-		sss << savename << "short" << i + 1;
-		if (!loadWeights(shortsubnets[i], sss.str().c_str())) {
-			std::cout << "couldn't find short weights file #" << i + 1 << std::endl;
+			std::stringstream wss;
+			if (combineWithMinBackupWeights)
+				wss << "backup/";
+			wss << savename;
+			wss << "long";
+			if (numCombineCVSets != 0)
+				wss << cv + 1 << "-";
+			wss << sub + 1;
+			if (combineWithMinBackupWeights)
+				wss << "Min";
+			if (!loadWeights(longsubnets[cv][sub], wss.str().c_str())) {
+				std::cout << "couldn't find long weights file, CV:" << cv + 1 << " Sub: " << sub + 1 << std::endl;
 #ifdef LOCAL
-			system("pause");
+				system("pause");
 #endif
-			return 0;
+				return 0;
+			}
+
+			shortsubnets[cv][sub] = createLayerCollection(0, getLCType());
+			initializeLayers(&shortsubnets[cv][sub]);
+
+			std::stringstream sss;
+			if (combineWithMinBackupWeights)
+				sss << "backup/";
+			sss << savename;
+			sss << "short";
+			if (numCombineCVSets != 0)
+				sss << cv + 1 << "-";
+			sss << sub + 1;
+			if (combineWithMinBackupWeights)
+				sss << "Min";
+			if (!loadWeights(shortsubnets[cv][sub], sss.str().c_str())) {
+				std::cout << "couldn't find short weights file, CV:" << cv + 1 << " Sub: " << sub + 1 << std::endl;
+#ifdef LOCAL
+				system("pause");
+#endif
+				return 0;
+			}
 		}
 	}
+	std::cout << "Done." << std::endl;
 	createSubnetInputOutput();
 
 	while (true) {
@@ -88,10 +122,10 @@ int main() {
 		std::cout << "Waiting for pipe to connect: ";
 		connectPipe(pipe);
 		std::cout << "done." << std::endl;
-		SelectionCriteria crit;
-		loadSelectionCriteria(&crit);
+		//SelectionCriteria crit;
+		//loadSelectionCriteria(&crit);
 
-		while (evaluateInput(pipe, crit)) {}
+		while (evaluateInput(pipe)) {}
 		CloseHandle(pipe);
 	}
 }
@@ -129,7 +163,7 @@ bool readString(HANDLE pipe, char* buffer, int size) {
 	return ReadFile(pipe, buffer, size*sizeof(char), &numBytesWritten, NULL) != 0;
 }
 
-bool evaluateInput(HANDLE pipe, SelectionCriteria crit) {
+bool evaluateInput(HANDLE pipe) {
 	size_t size = 30 * NUM_INPUTS;
 	char* buffer = new char[size];
 	//std::vector<float> inputs;
@@ -170,7 +204,7 @@ bool evaluateInput(HANDLE pipe, SelectionCriteria crit) {
 				inputs[j] = 0;
 		}
 
-		output = selectTrade(inputs, crit);
+		output = selectTrade(inputs);
 	}
 	else
 		output = 0;
@@ -202,8 +236,18 @@ void loadLocalParameters(std::string parName) {
 		std::string var;
 		lss >> var;
 
-		if (var == "numSubnets")
-			lss >> numSubnets;
+		if (var == "numCombineCVSets")
+			lss >> numCombineCVSets;
+		else if (var == "numCombineSubnets")
+			lss >> numCombineSubnets;
+		else if (var == "combineNetsSelectPerCV")
+			lss >> combineNetsSelectPerCV;
+		else if (var == "combineWithMinBackupWeights")
+			lss >> combineWithMinBackupWeights;
+		else if (var == "binToCombineOn")
+			lss >> binToCombineOn;
+		else if (var == "finalCombineCVsToSelect")
+			lss >> finalCombineCVsToSelect;
 	}
 }
 
@@ -239,92 +283,99 @@ bool loadSelectionCriteria(SelectionCriteria* crit) {
 }
 
 void createSubnetInputOutput() {
-	d_inputs.resize(2 * numSubnets);
-	h_outputs.resize(2 * numSubnets);
-	for (size_t i = 0; i < 2 * numSubnets; i++) {
-		LayerCollection layers;
-		size_t subnetPos = i % numSubnets;
-		if (i < numSubnets)
-			layers = longsubnets[subnetPos];
-		else
-			layers = shortsubnets[subnetPos];
+	d_inputs.resize(numCombineCVSets);
+	h_outputs.resize(numCombineCVSets);
+	
+	for (size_t cv = 0; cv < numCombineCVSets; cv++) {
+		d_inputs[cv].resize(2 * numCombineSubnets);
+		h_outputs[cv].resize(2 * numCombineSubnets);
+		for (size_t sub = 0; sub < 2 * numCombineSubnets; sub++) {
+			LayerCollection* layers;
+			size_t subnetPos = sub % numCombineSubnets;
+			if (sub < numCombineSubnets)
+				layers = &longsubnets[cv][subnetPos];
+			else
+				layers = &shortsubnets[cv][subnetPos];
 
-		if (layers.numConvolutions > 0) {
-			if (layers.convPars[0].numInputLocs != NUM_INPUTS || layers.convPars[0].numInputNeurons != 1)
-				throw std::runtime_error("inputs to first layer don't match data set");
-			d_inputs[i] = layers.convMat[0].inlayer;
-		}
-		else if (layers.numFixedNets > 0) {
-			if (layers.fixedPars[0].numInputNeurons != NUM_INPUTS)
-				throw std::runtime_error("inputs to first layer don't match data set");
-			d_inputs[i] = layers.fixedMat[0].inlayer;
-		}
-		else
-			throw std::runtime_error("tried to run on a network with no convolutions and no fixed networks");
+			if (layers->numConvolutions > 0) {
+				if (layers->convPars[0].numInputLocs != NUM_INPUTS || layers->convPars[0].numInputNeurons != 1)
+					throw std::runtime_error("inputs to first layer don't match data set");
+				d_inputs[cv][sub] = layers->convMat[0].inlayer;
+			}
+			else if (layers->numFixedNets > 0) {
+				if (layers->fixedPars[0].numInputNeurons != NUM_INPUTS)
+					throw std::runtime_error("inputs to first layer don't match data set");
+				d_inputs[cv][sub] = layers->fixedMat[0].inlayer;
+			}
+			else
+				throw std::runtime_error("tried to run on a network with no convolutions and no fixed networks");
 
-		h_outputs[i] = new float[numBins];
+			h_outputs[cv][sub] = new float[numBins];
+		}
 	}
 }
 
-size_t selectTrade(std::vector<float> inputs, SelectionCriteria crit) {
-	for (size_t i = 0; i < 2*numSubnets; i++) {
-		LayerCollection layers;
-		size_t subnetPos = i % numSubnets;
-		if (i < numSubnets)
-			layers = longsubnets[subnetPos];
-		else
-			layers = shortsubnets[subnetPos];
+size_t selectTrade(std::vector<float> inputs) {
+	for (size_t cv = 0; cv < numCombineCVSets; cv++) {
+		for (size_t sub = 0; sub < 2 * numCombineSubnets; sub++) {
+			LayerCollection layers;
+			size_t subnetPos = sub % numCombineSubnets;
+			if (sub < numCombineSubnets)
+				layers = longsubnets[cv][subnetPos];
+			else
+				layers = shortsubnets[cv][subnetPos];
 
-		disableDropout();
-		generateDropoutMask(&layers);
+			disableDropout();
+			generateDropoutMask(&layers);
 
-		checkCudaErrors(cudaMemcpyAsync(d_inputs[i], &inputs[0], NUM_INPUTS*sizeof(float), cudaMemcpyHostToDevice));
+			checkCudaErrors(cudaMemcpyAsync(d_inputs[cv][sub], &inputs[0], NUM_INPUTS*sizeof(float), cudaMemcpyHostToDevice));
 
-		calculate(layers);
+			calculate(layers);
 
-		checkCudaErrors(cudaMemcpyAsync(h_outputs[i], layers.fixedMat[layers.numFixedNets - 1].outlayer, numBins*sizeof(float), cudaMemcpyDeviceToHost));
+			checkCudaErrors(cudaMemcpyAsync(h_outputs[cv][sub], layers.fixedMat[layers.numFixedNets - 1].outlayer, numBins*sizeof(float), cudaMemcpyDeviceToHost));
+		}
 	}
 	checkCudaErrors(cudaDeviceSynchronize());
 
-	size_t numLongTestSelected = 0;
-	size_t numLongOppositeSelected = 0;
-	size_t numShortTestSelected = 0;
-	size_t numShortOppositeSelected = 0;
 	bool tradeLong = false;
 	bool tradeShort = false;
-	for (size_t j = 0; j < 2 * numSubnets; j++) {
-		bool testSelected = true;
-		bool oppositeSelected = true;
-		for (size_t k = 0; k < numBins; k++) {
-			if (h_outputs[j][k] < crit.testSelectBinMins[k] || h_outputs[j][k] > crit.testSelectBinMaxes[k])
-				testSelected = false;
-			if (h_outputs[j][k] < crit.oppositeSelectBinMins[k] || h_outputs[j][k] > crit.oppositeSelectBinMaxes[k])
-				oppositeSelected = false;
-		}
 
-		if (j < numSubnets) { //LONG
-			if (testSelected)
-				numLongTestSelected++;
-			if (oppositeSelected)
-				numShortOppositeSelected++;
+	size_t numLongCVSelected = 0;
+	size_t numShortCVSelected = 0;
+	for (size_t cv = 0; cv < numCombineCVSets; cv++) {
+		size_t numLongTestSelected = 0;
+		size_t numShortTestSelected = 0;
+		for (size_t j = 0; j < 2 * numCombineSubnets; j++) {
+			float maxBinWeight = 0.0f;
+			size_t maxBin = 0;
+			for (size_t k = 0; k < numBins; k++) {
+				if (h_outputs[cv][j][k] > maxBinWeight) {
+					maxBinWeight = h_outputs[cv][j][k];
+					maxBin = k;
+				}
+			}
+
+			if (j < numCombineSubnets) { //LONG
+				if (maxBinWeight > 0.0f && maxBin == binToCombineOn) {
+					numLongTestSelected++;
+				}
+			}
+			else {
+				if (maxBinWeight > 0.0f && maxBin == binToCombineOn)
+					numShortTestSelected++;
+			}
 		}
-		else {
-			if (testSelected)
-				numShortTestSelected++;
-			if (oppositeSelected)
-				numLongOppositeSelected++;
+		if (numLongTestSelected >= combineNetsSelectPerCV) {
+			numLongCVSelected++;
+		}
+		if (numShortTestSelected >= combineNetsSelectPerCV) {
+			numShortCVSelected++;
 		}
 	}
-
-	/*
-	if (numLongTestSelected > 1 || numShortTestSelected > 1)
-		std::cout << numLongTestSelected << " " << numShortTestSelected << " " << numLongOppositeSelected << " " << numShortOppositeSelected << std::endl;
-		*/
-
-	if (numLongTestSelected >= crit.minSubnetSelect && numLongOppositeSelected >= crit.oppositeMinSubnetSelect) {
+	if (numLongCVSelected >= finalCombineCVsToSelect) {
 		tradeLong = true;
 	}
-	if (numShortTestSelected >= crit.minSubnetSelect && numShortOppositeSelected >= crit.oppositeMinSubnetSelect) {
+	if (numShortCVSelected >= finalCombineCVsToSelect) {
 		tradeShort = true;
 	}
 

@@ -21,6 +21,8 @@ Project("{8BC9CEB8-8B4A-11D0-8D11-00A0C91BC942}") = "mommodelcalc", "mommodelcal
 EndProject
 Project("{8BC9CEB8-8B4A-11D0-8D11-00A0C91BC942}") = "stockcombine", "stockcombine\stockcombine.vcxproj", "{BBC3E9B1-BF7F-4633-969B-177FB31F9F66}"
 EndProject
+Project("{8BC9CEB8-8B4A-11D0-8D11-00A0C91BC942}") = "stockeval", "stockeval\stockeval.vcxproj", "{BC017364-5677-4601-A3C9-1B89697BC237}"
+EndProject
 Global
 	GlobalSection(SolutionConfigurationPlatforms) = preSolution
 		Debug|ARM = Debug|ARM
@@ -121,6 +123,16 @@ Global
 		{BBC3E9B1-BF7F-4633-969B-177FB31F9F66}.Release|Win32.Build.0 = Release|Win32
 		{BBC3E9B1-BF7F-4633-969B-177FB31F9F66}.Release|x64.ActiveCfg = Release|x64
 		{BBC3E9B1-BF7F-4633-969B-177FB31F9F66}.Release|x64.Build.0 = Release|x64
+		{BC017364-5677-4601-A3C9-1B89697BC237}.Debug|ARM.ActiveCfg = Debug|Win32
+		{BC017364-5677-4601-A3C9-1B89697BC237}.Debug|Win32.ActiveCfg = Debug|Win32
+		{BC017364-5677-4601-A3C9-1B89697BC237}.Debug|Win32.Build.0 = Debug|Win32
+		{BC017364-5677-4601-A3C9-1B89697BC237}.Debug|x64.ActiveCfg = Debug|x64
+		{BC017364-5677-4601-A3C9-1B89697BC237}.Debug|x64.Build.0 = Debug|x64
+		{BC017364-5677-4601-A3C9-1B89697BC237}.Release|ARM.ActiveCfg = Release|Win32
+		{BC017364-5677-4601-A3C9-1B89697BC237}.Release|Win32.ActiveCfg = Release|Win32
+		{BC017364-5677-4601-A3C9-1B89697BC237}.Release|Win32.Build.0 = Release|Win32
+		{BC017364-5677-4601-A3C9-1B89697BC237}.Release|x64.ActiveCfg = Release|x64
+		{BC017364-5677-4601-A3C9-1B89697BC237}.Release|x64.Build.0 = Release|x64
 	EndGlobalSection
 	GlobalSection(SolutionProperties) = preSolution
 		HideSolutionNode = FALSE
