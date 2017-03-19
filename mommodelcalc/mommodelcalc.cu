@@ -41,12 +41,12 @@ void debugSaveInternalResults();
 int main() {
 	srand((size_t)time(NULL));
 
+	setStrings(datastring, savestring);
 #ifdef LOCAL
 	loadParameters("pars.cfg");
 #else
 	loadParameters("../stockproj/pars.cfg");
 #endif
-	setStrings(datastring, savestring);
 
 	columns.push_back(1);
 	columns.push_back(2);

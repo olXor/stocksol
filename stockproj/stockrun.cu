@@ -9,6 +9,7 @@ std::string savestring;
 
 //parameters
 size_t NUM_INPUTS = 64;
+size_t NUM_NEURONS = 32;
 float INITIAL_OUTPUT_AVERAGE = 0.0f;
 float OUTPUT_DIVISOR = 1.0f;
 std::string savename = "weights";
@@ -26,6 +27,8 @@ float binWidth = 5.0f;
 float binMin = 0.0f;
 float binMax = 200.0f;
 size_t numBins = 1;
+bool useBinEdgeFile = false;
+std::vector<float> binEdges;
 
 float convDropoutWeight = 1.0f;
 float savedConvDropoutWeight = 1.0f;	//for retrieving when dropout is enabled after being disabled
@@ -38,7 +41,7 @@ size_t numFixedHiddenNeurons = 2 * NUM_NEURONS;
 bool sigmoidOnBinnedOutput = false;
 
 float binPositiveOutput = BIN_POSITIVE_OUTPUT;
-float binNegativeOutput = BIN_NEGATIVE_OUTPUT;
+float binNegativeOutput = -BIN_POSITIVE_OUTPUT;
 
 float convL1Reg = 0.0f;
 float convL2Reg = 0.0f;
@@ -52,6 +55,17 @@ std::vector<float> oppositeSelectBinMins;
 std::vector<float> oppositeSelectBinMaxes;
 
 std::chrono::system_clock::time_point markedStartTime;
+
+float* d_outAverages = NULL;
+
+bool trainWeightFlatten = false;
+std::vector<float> trainWeightFlattenBins;
+float trainWeightExtremeLinearFactor = 0.0f;
+float trainsetMean = 0.0f;
+
+std::vector<float> trainsetWeightBinProportions;
+
+void loadBinEdges(std::string binEdgeFile);
 
 void setStrings(std::string data, std::string save) {
 	datastring = data;
@@ -136,7 +150,7 @@ size_t readTrainSet(std::string learnsetname, size_t begin, size_t numIOs, bool 
 	return ionum;
 }
 
-float runSim(LayerCollection layers, bool train, float customStepFactor, size_t samples, bool print, float* secondaryError, bool runOnTestSet) {
+float runSim(LayerCollection layers, bool train, float customStepFactor, size_t samples, bool print, float* secondaryError, bool runOnTestSet, float* outAverages, std::ofstream* outfile) {
 	float* d_inputs;
 	if (layers.numConvolutions > 0) {
 		if (layers.convPars[0].numInputLocs != NUM_INPUTS || layers.convPars[0].numInputNeurons != 1)
@@ -179,6 +193,12 @@ float runSim(LayerCollection layers, bool train, float customStepFactor, size_t 
 		trainSamplesNum = samples;
 	else
 		trainSamplesNum = dataset->size();
+
+	if (outAverages != NULL) {
+		checkCudaErrors(cudaMemcpy(d_outAverages, outAverages, numBins*sizeof(float), cudaMemcpyHostToDevice));
+		for (size_t i = 0; i < numBins; i++)
+			outAverages[i] = 0;
+	}
 		
 	float error = 0.0f;
 	float secError = 0.0f;
@@ -187,6 +207,11 @@ float runSim(LayerCollection layers, bool train, float customStepFactor, size_t 
 	float secError4 = 0.0f;
 	float secError5 = 0.0f;
 	size_t numerrors = 0;
+	float correctsum = 0.0f;
+	float observedsum = 0.0f;
+	float correctsum2 = 0.0f;
+	float squaredifference = 0.0f;
+	float absdifference = 0.0f;
 	
 	//stuff associated with trying to select only the most certain winning trades
 	std::vector<size_t> selectBinResults(numBins);
@@ -214,7 +239,7 @@ float runSim(LayerCollection layers, bool train, float customStepFactor, size_t 
 		else
 			checkCudaErrors(cudaMemcpyAsync(layers.correctoutput, &(*dataset)[i].correctoutput, sizeof(float), cudaMemcpyHostToDevice, mainStream));
 
-		calculateOutputError << <1, numBins, 0, mainStream >> >(layers.d_fixedMat[layers.numFixedNets - 1], layers.stepfactor, layers.correctoutput, d_output);
+		calculateOutputError << <1, numBins, 0, mainStream >> >(layers.d_fixedMat[layers.numFixedNets - 1], layers.stepfactor, layers.correctoutput, d_output, d_outAverages, (*dataset)[i].weight);
 
 		checkCudaErrors(cudaEventRecord(calcDone, mainStream));
 
@@ -224,6 +249,11 @@ float runSim(LayerCollection layers, bool train, float customStepFactor, size_t 
 
 		checkCudaErrors(cudaEventSynchronize(calcDone));
 
+		if (outAverages != NULL) {
+			for (size_t j = 0; j < numBins; j++) {
+				outAverages[j] += h_output[j];
+			}
+		}
 		float newerror = 0;
 		bool select = false;
 		if (binnedOutput) {
@@ -278,8 +308,15 @@ float runSim(LayerCollection layers, bool train, float customStepFactor, size_t 
 		}
 		else {
 			float unsquare = (h_output[0] - (*dataset)[i].correctoutput);
-			newerror += unsquare*unsquare;
-			error += sqrt(newerror);			//bit unnecessarily convoluted here perhaps
+			newerror = unsquare*unsquare;
+			squaredifference += newerror;			//bit unnecessarily convoluted here perhaps
+			absdifference += fabs(unsquare);
+			correctsum += (*dataset)[i].correctoutput;
+			observedsum += h_output[0];
+			correctsum2 += (*dataset)[i].correctoutput*(*dataset)[i].correctoutput;
+			if (outfile != NULL) {
+				(*outfile) << h_output[0] << " " << (*dataset)[i].correctoutput << " " << fabs(unsquare) << std::endl;
+			}
 		}
 
 		if (print) {
@@ -314,6 +351,8 @@ float runSim(LayerCollection layers, bool train, float customStepFactor, size_t 
 
 	if (numerrors > 0) {
 		error /= numerrors;
+		squaredifference /= numerrors;
+		absdifference /= numerrors;
 		secError /= numerrors;
 		secError2 /= numerrors;
 		secError3 /= numerrors;
@@ -323,6 +362,22 @@ float runSim(LayerCollection layers, bool train, float customStepFactor, size_t 
 	if (binnedOutput) {
 		secError2 = sqrt(secError2);
 		secError4 = sqrt(secError4);
+		if (useBinEdgeFile) {
+			secError = 0;
+			secError2 = 0;
+			secError3 = 0;
+			secError4 = 0;
+		}
+	}
+	else {
+		float correctmean = correctsum / numerrors;
+		float observedmean = observedsum / numerrors;
+		float correctmean2 = correctsum2 / numerrors;
+		float correctss = correctmean2 - correctmean*correctmean;
+		float diffss = correctmean2 - 2 * correctmean*observedmean + observedmean*observedmean;
+		secError = squaredifference / correctss;
+		secError2 = squaredifference / diffss;
+		error = absdifference;
 	}
 	if (secondaryError != NULL) {
 		secondaryError[0] = secError;
@@ -337,6 +392,12 @@ float runSim(LayerCollection layers, bool train, float customStepFactor, size_t 
 		std::cout << "Selected Sample Bin Distribution: ";
 		for (size_t i = 0; i < numBins; i++) {
 			std::cout << selectBinResults[i] << "(" << 1.0f*selectBinResults[i] / numSelected << ") ";
+		}
+	}
+
+	if (outAverages != NULL) {
+		for (size_t i = 0; i < numBins; i++) {
+			outAverages[i] = outAverages[i] / trainSamplesNum;
 		}
 	}
 
@@ -944,7 +1005,7 @@ LayerCollection createLayerCollection(size_t numInputs, int LCType) {
 		if (numInputs == 136) {
 			ConvolutionParameters conv0;
 			conv0.numInputLocs = 136;
-			conv0.convSize = 8;	//This should be 9, of course; kept this way for backwards compatability now; change asap.
+			conv0.convSize = 9;	//old networks used 8 because of bug
 			conv0.numOutputLocs = 128;
 			conv0.numInputNeurons = 1;
 			conv0.numOutputNeurons = NUM_NEURONS;
@@ -1715,6 +1776,8 @@ void loadParameters(std::string parName) {
 		lss >> var;
 		if (var == "NUM_INPUTS")
 			lss >> NUM_INPUTS;
+		else if (var == "NUM_NEURONS")
+			lss >> NUM_NEURONS;
 		else if (var == "INITIAL_OUTPUT_AVERAGE")
 			lss >> INITIAL_OUTPUT_AVERAGE;
 		else if (var == "OUTPUT_DIVISOR")
@@ -1743,6 +1806,13 @@ void loadParameters(std::string parName) {
 			lss >> binMax;
 		else if (var == "binWidth")
 			lss >> binWidth;
+		else if (var == "useBinEdgeFile")
+			lss >> useBinEdgeFile;
+		else if (var == "binEdgeFile") {
+			std::string binEdgeFile;
+			lss >> binEdgeFile;
+			loadBinEdges(binEdgeFile);
+		}
 		else if (var == "convDropoutWeight") {
 			lss >> convDropoutWeight;
 			savedConvDropoutWeight = convDropoutWeight;
@@ -1786,10 +1856,31 @@ void loadParameters(std::string parName) {
 			lss >> fixedL1Reg;
 		else if (var == "fixedL2Reg")
 			lss >> fixedL2Reg;
+		else if (var == "trainWeightFlatten")
+			lss >> trainWeightFlatten;
+		else if (var == "trainWeightFlattenBins") {
+			trainWeightFlattenBins.clear();
+			float dum;
+			while (lss >> dum)
+				trainWeightFlattenBins.push_back(dum);
+		}
+		else if (var == "trainWeightExtremeLinearFactor")
+			lss >> trainWeightExtremeLinearFactor;
 	}
 
-	if (binnedOutput)
-		numBins = (size_t)((binMax - binMin) / binWidth + 1);
+	if (binnedOutput) {
+		if (!useBinEdgeFile) {
+			numBins = (size_t)((binMax - binMin) / binWidth + 1);
+			binEdges.clear();
+			for (size_t i = 1; i < numBins; i++) {
+				binEdges.push_back(binMin + i*binWidth);
+			}
+		}
+		else
+			numBins = binEdges.size() + 1;
+		if (numBins > 1)
+			binNegativeOutput = -BIN_POSITIVE_OUTPUT / (numBins - 1);
+	}
 	else
 		numBins = 1;
 }
@@ -2082,19 +2173,26 @@ int getLCType() {
 
 std::vector<float> getBinnedOutput(float output) {
 	std::vector<float> bins;
+	if (numBins == 0)
+		return bins;
 
 	bins.resize(numBins);
 	
-	for (size_t i = 0; i < bins.size(); i++) {
-		if (output >= binMin + i*binWidth && output < binMin + (i + 1)*binWidth)
+	for (size_t i = 1; i < numBins-1; i++) {
+		if (output >= binEdges[i-1] && output < binEdges[i])
 			bins[i] = binPositiveOutput;
 		else
 			bins[i] = binNegativeOutput;
 	}
-	if (output < binMin)
+	if (output < binEdges[0])
 		bins[0] = binPositiveOutput;
-	else if (output > binMin + numBins*binWidth)
+	else
+		bins[0] = binNegativeOutput;
+
+	if (numBins >= 2 && output > binEdges[numBins - 2])
 		bins[numBins - 1] = binPositiveOutput;
+	else
+		bins[numBins - 1] = binNegativeOutput;
 
 	return bins;
 }
@@ -2156,16 +2254,16 @@ std::vector<std::vector<IOPair>> getBinnedTrainset() {
 	std::vector<std::vector<IOPair>> binset;
 	binset.resize(numBins);
 	for (size_t i = 0; i < trainset.size(); i++) {
-		if (trainset[i].correctoutput < binMin) {
+		if (trainset[i].correctoutput < binEdges[0]) {
 			binset[0].push_back(trainset[i]);
 			continue;
 		}
-		if (trainset[i].correctoutput > binMin + numBins*binWidth) {
+		if (trainset[i].correctoutput >= binEdges[numBins-2]) {
 			binset[numBins - 1].push_back(trainset[i]);
 			continue;
 		}
-		for (size_t j = 0; j < numBins; j++) {
-			if (trainset[i].correctoutput >= binMin + j*binWidth && trainset[i].correctoutput < binMin + (j + 1)*binWidth)
+		for (size_t j = 1; j < numBins-1; j++) {
+			if (trainset[i].correctoutput >= binEdges[j-1] && trainset[i].correctoutput < binEdges[j])
 				binset[j].push_back(trainset[i]);
 		}
 	}
@@ -2242,4 +2340,84 @@ size_t readTwoPriceTrainSet(std::string learnsetname, size_t begin, size_t numIO
 		}
 	}
 	return ionum;
+}
+
+void initializeDOutAverages() {
+	if (d_outAverages == NULL)
+		checkCudaErrors(cudaMalloc(&d_outAverages, numBins*sizeof(float)));
+}
+
+void generateTrainWeightBins() {
+	if (!trainWeightFlatten && trainWeightExtremeLinearFactor == 0)
+		return;
+	std::cout << "Generating train weights: ";
+	markTime();
+	size_t numFilledBins = 0;
+	if (trainWeightFlatten) {
+		for (size_t i = 1; i < trainWeightFlattenBins.size(); i++) {
+			if (trainWeightFlattenBins[i] <= trainWeightFlattenBins[i - 1]) {
+				std::cout << "Invalid trainWeightFlattenBins" << std::endl;
+				throw new std::runtime_error("Invalid trainWeightFlattenBins");
+			}
+		}
+
+		trainsetWeightBinProportions.resize(trainWeightFlattenBins.size() + 1);
+		for (size_t i = 0; i < trainset.size(); i++) {
+			float value = trainset[i].correctoutput;
+			bool done = false;
+			for (size_t j = 0; j < trainWeightFlattenBins.size(); j++) {
+				if (value < trainWeightFlattenBins[j]) {
+					trainsetWeightBinProportions[j] += 1.0f;
+					done = true;
+					break;
+				}
+			}
+			if (!done)
+				trainsetWeightBinProportions[trainWeightFlattenBins.size()]++;
+		}
+		for (size_t i = 0; i < trainsetWeightBinProportions.size(); i++) {
+			if (trainsetWeightBinProportions[i] > 0)
+				numFilledBins++;
+			trainsetWeightBinProportions[i] = trainsetWeightBinProportions[i] / trainset.size();
+		}
+	}
+	trainsetMean = 0;
+	for (size_t i = 0; i < trainset.size(); i++) {
+		trainsetMean += trainset[i].correctoutput;
+	}
+	trainsetMean /= trainset.size();
+
+	for (size_t i = 0; i < trainset.size(); i++) {
+		size_t binNum = 0;
+		bool done = false;
+		for (size_t j = 0; j < trainWeightFlattenBins.size(); j++) {
+			if (trainset[i].correctoutput < trainWeightFlattenBins[j]) {
+				binNum = j;
+				done = true;
+				break;
+			}
+		}
+		if (!done)
+			binNum = trainWeightFlattenBins.size();
+
+		trainset[i].weight = (1.0f+trainWeightExtremeLinearFactor*fabs(trainset[i].correctoutput - trainsetMean));
+		if (trainWeightFlatten)
+			trainset[i].weight *= 1.0f / trainsetWeightBinProportions[binNum] / numFilledBins;
+	}
+
+	std::cout << "(" << getTimeSinceMark() << " s)" << std::endl;
+}
+
+void loadBinEdges(std::string binEdgeFile) {
+	binEdges.clear();
+	std::stringstream ss;
+	ss << datastring << binEdgeFile;
+	std::ifstream binfile(ss.str());
+	if (!binfile.is_open()) {
+		std::cout << "Couldn't load binEdge file " << ss.str() << std::endl;
+		throw new std::runtime_error("Couldn't load binEdge file");
+	}
+	float dum;
+	while (binfile >> dum)
+		binEdges.push_back(dum);
 }

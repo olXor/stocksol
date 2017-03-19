@@ -4,7 +4,7 @@
 #include <vector>
 
 extern size_t NUM_INPUTS;
-#define NUM_NEURONS 32
+extern size_t NUM_NEURONS;
 
 #define TRANSFER_FUNCTION_LIMIT 50.0f
 #define TRANSFER_WIDTH 1.0f
@@ -32,6 +32,8 @@ extern float binMin;
 extern float binMax;
 extern float binWidth;
 
+extern std::vector<float> binEdges;
+
 extern std::string savename;
 extern std::string trainstring;
 extern std::string randtrainstring;
@@ -44,7 +46,6 @@ extern std::vector<float> oppositeSelectBinMins;
 extern std::vector<float> oppositeSelectBinMaxes;
 
 #define BIN_POSITIVE_OUTPUT 100.0f
-#define BIN_NEGATIVE_OUTPUT 0.0f
 
 #define INTERVALS_PER_DATASET 100
 #endif

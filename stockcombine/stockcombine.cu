@@ -24,8 +24,13 @@ size_t numCombineSubnets = 1;
 
 std::vector<std::vector<LayerCollection>> longsubnets;	//[numCombineCVSets, numCombineSubnets]
 std::vector<std::vector<LayerCollection>> shortsubnets;	//[numCombineCVSets, numCombineSubnets]
+std::vector<std::vector<std::vector<float>>> scales;	//[numCombineCVSets, 2*numCombineSubnets, numBins]
+std::vector<std::vector<std::vector<float>>> means;
 
-size_t combineNetsSelectPerCV = 7;
+bool combineOutputScaling = true;
+
+size_t combineLongNetsSelectPerCV = 9;
+size_t combineShortNetsSelectPerCV = 9;
 
 bool combineWithMinBackupWeights = true;
 
@@ -33,10 +38,14 @@ size_t binToCombineOn = 0;
 
 std::string combineTestFile = "combinetest";
 
+bool combineMergeSubnetsByCV = true;
+
 size_t readData(std::string fname, size_t begin, size_t numIOs);
 
 void generateSubnetResults();
 void evaluateMaxBinSelection(size_t bin, size_t numCVSetsToSelect, bool print);
+void evaluateMaxBinSelectionMergedSubnets(size_t bin, size_t numSubnetsToSelect, bool print);
+bool loadScales(std::vector<float>* means, std::vector<float>* scales, std::string fname);
 
 int main() {
 	srand((size_t)time(NULL));
@@ -62,6 +71,16 @@ int main() {
 	for (size_t i = 0; i < numCombineCVSets; i++) {
 		longsubnets[i].resize(numCombineSubnets);
 		shortsubnets[i].resize(numCombineSubnets);
+	}
+	scales.resize(numCombineCVSets);
+	means.resize(numCombineCVSets);
+	for (size_t i = 0; i < numCombineCVSets; i++) {
+		scales[i].resize(2 * numCombineSubnets);
+		means[i].resize(2 * numCombineSubnets);
+		for (size_t j = 0; j < 2 * numCombineSubnets; j++) {
+			scales[i][j].resize(numBins);
+			means[i][j].resize(numBins);
+		}
 	}
 
 	readData(combineTestFile, testBegin, testNumIOs);
@@ -89,6 +108,13 @@ int main() {
 #endif
 				return 0;
 			}
+			if (combineOutputScaling && !loadScales(&means[cv][sub], &scales[cv][sub], wss.str().c_str())) {
+				std::cout << "Couldn't find long scales file #" << cv + 1 << "-" << sub+1 << std::endl;
+#ifdef LOCAL
+				system("pause");
+#endif
+				return 0;
+			}
 
 			shortsubnets[cv][sub] = createLayerCollection(0, getLCType());
 			initializeLayers(&shortsubnets[cv][sub]);
@@ -110,6 +136,13 @@ int main() {
 #endif
 				return 0;
 			}
+			if (combineOutputScaling && !loadScales(&means[cv][sub+numCombineSubnets], &scales[cv][sub+numCombineSubnets], wss.str().c_str())) {
+				std::cout << "Couldn't find short scales file #" << cv + 1 << "-" << sub+1 << std::endl;
+#ifdef LOCAL
+				system("pause");
+#endif
+				return 0;
+			}
 		}
 	}
 	std::cout << "Done." << std::endl;
@@ -121,9 +154,17 @@ int main() {
 	long long gentime = std::chrono::duration_cast<std::chrono::microseconds>(genelapsed).count();
 	std::cout << " (" << gentime / 1000000 << " s)" << std::endl;
 
-	std::cout << "Printing results by required number of agreeing CV sets." << std::endl;
-	for (size_t i = 0; i <= numCombineCVSets; i++) {
-		evaluateMaxBinSelection(binToCombineOn, i, true);
+	if (combineMergeSubnetsByCV) {
+		std::cout << "Printing results by required number of agreeing CV sets." << std::endl;
+		for (size_t i = 0; i <= numCombineCVSets; i++) {
+			evaluateMaxBinSelection(binToCombineOn, i, true);
+		}
+	}
+	else {
+		std::cout << "Printing results by required number of agreeing subnets." << std::endl;
+		for (size_t i = 0; i <= numCombineCVSets*numCombineSubnets; i++) {
+			evaluateMaxBinSelectionMergedSubnets(binToCombineOn, i, true);
+		}
 	}
 
 #ifdef LOCAL
@@ -227,7 +268,10 @@ void generateSubnetResults() {
 		for (size_t cv = 0; cv < numCombineCVSets; cv++) {
 			for (size_t sub = 0; sub < 2 * numCombineSubnets; sub++) {
 				for (size_t j = 0; j < numBins; j++) {
-					subnetResults[i][cv][sub][j] = h_output[cv][sub][j];
+					if (combineOutputScaling)
+						subnetResults[i][cv][sub][j] = scales[cv][sub][j] * (h_output[cv][sub][j] - means[cv][sub][j]);
+					else
+						subnetResults[i][cv][sub][j] = h_output[cv][sub][j];
 				}
 			}
 		}
@@ -269,10 +313,10 @@ void evaluateMaxBinSelection(size_t bin, size_t numCVSetsToSelect, bool print) {
 						numShortTestSelected++;
 				}
 			}
-			if (numLongTestSelected >= combineNetsSelectPerCV) {
+			if (numLongTestSelected >= combineLongNetsSelectPerCV) {
 				numLongCVSelected++;
 			}
-			if (numShortTestSelected >= combineNetsSelectPerCV) {
+			if (numShortTestSelected >= combineShortNetsSelectPerCV) {
 				numShortCVSelected++;
 			}
 		}
@@ -303,7 +347,7 @@ void evaluateMaxBinSelection(size_t bin, size_t numCVSetsToSelect, bool print) {
 	}
 
 	if (print) {
-		std::cout << "Bin #" << bin << " with " << numCVSetsToSelect << " CVs with " << combineNetsSelectPerCV << " nets required. ";
+		std::cout << "Bin #" << bin << " with " << numCVSetsToSelect << " CVs with " << combineLongNetsSelectPerCV << "/" << combineShortNetsSelectPerCV << " nets required. ";
 		std::cout << "Profits: L: " << longProfit << " (/" << numLongTrades << "=" << longProfit / numLongTrades << ") S: " << shortProfit << " (/" << numShortTrades << "=" << shortProfit / numShortTrades << ")" << " Total: " << longProfit + shortProfit << " (/" << numLongTrades + numShortTrades << "=" << (longProfit + shortProfit) / (numLongTrades + numShortTrades) << ")" << std::endl;
 		std::cout << "Long Trade Distribution: ";
 		for (size_t i = 0; i < numBins; i++) {
@@ -319,6 +363,106 @@ void evaluateMaxBinSelection(size_t bin, size_t numCVSetsToSelect, bool print) {
 	}
 }
 
+void evaluateMaxBinSelectionMergedSubnets(size_t bin, size_t numSubnetsToSelect, bool print) {
+	std::vector<IOPair>* dataset = getTrainSet();
+	float longProfit = 0;
+	float shortProfit = 0;
+	size_t numLongTrades = 0;
+	size_t numShortTrades = 0;
+	std::vector<size_t> longDist(numBins);
+	std::vector<size_t> shortDist(numBins);
+
+	for (size_t i = 0; i < subnetResults.size(); i++) {
+		size_t numLongNetsSelected = 0;
+		size_t numShortNetsSelected = 0;
+		for (size_t cv = 0; cv < numCombineCVSets; cv++) {
+			for (size_t j = 0; j < 2 * numCombineSubnets; j++) {
+				float maxBinWeight = 0.0f;
+				size_t maxBin = 0;
+				for (size_t k = 0; k < numBins; k++) {
+					if (subnetResults[i][cv][j][k] > maxBinWeight) {
+						maxBinWeight = subnetResults[i][cv][j][k];
+						maxBin = k;
+					}
+				}
+
+				if (j < numCombineSubnets) { //LONG
+					if (maxBinWeight > 0.0f && maxBin == bin) {
+						numLongNetsSelected++;
+					}
+				}
+				else {
+					if (maxBinWeight > 0.0f && maxBin == bin)
+						numShortNetsSelected++;
+				}
+			}
+		}
+		if (numLongNetsSelected >= numSubnetsToSelect) {
+			longProfit += (*dataset)[i].correctoutput;
+			numLongTrades++;
+			size_t binPos = 0;
+			for (size_t j = 0; j < numBins; j++) {
+				if ((*dataset)[i].correctbins[j] == BIN_POSITIVE_OUTPUT) {
+					binPos = j;
+					break;
+				}
+			}
+			longDist[binPos]++;
+		}
+		if (numShortNetsSelected >= numSubnetsToSelect) {
+			shortProfit += (*dataset)[i].secondaryoutput;
+			numShortTrades++;
+			size_t binPos = 0;
+			for (size_t j = 0; j < numBins; j++) {
+				if ((*dataset)[i].secondarybins[j] == BIN_POSITIVE_OUTPUT) {
+					binPos = j;
+					break;
+				}
+			}
+			shortDist[binPos]++;
+		}
+	}
+
+	if (print) {
+		std::cout << "Bin #" << bin << " with " << numSubnetsToSelect << " nets required. ";
+		std::cout << "Profits: L: " << longProfit << " (/" << numLongTrades << "=" << longProfit / numLongTrades << ") S: " << shortProfit << " (/" << numShortTrades << "=" << shortProfit / numShortTrades << ")" << " Total: " << longProfit + shortProfit << " (/" << numLongTrades + numShortTrades << "=" << (longProfit + shortProfit) / (numLongTrades + numShortTrades) << ")" << std::endl;
+		std::cout << "Long Trade Distribution: ";
+		for (size_t i = 0; i < numBins; i++) {
+			std::cout << longDist[i] << " ";
+		}
+		std::cout << std::endl;
+
+		std::cout << "Short Trade Distribution: ";
+		for (size_t i = 0; i < numBins; i++) {
+			std::cout << shortDist[i] << " ";
+		}
+		std::cout << std::endl;
+	}
+}
+
+bool loadScales(std::vector<float>* means, std::vector<float>* scales, std::string fname) {
+	scales->resize(numBins);
+	means->resize(numBins);
+
+	std::stringstream fss;
+	fss << savestring << fname << "scales";
+
+	if (!PathFileExists(fss.str().c_str())) {
+		std::cout << "No scales file found for file " << fname << std::endl;
+		return false;
+	}
+
+	std::ifstream infile(fss.str().c_str());
+	
+	for (size_t i = 0; i < numBins; i++) {
+		infile >> (*means)[i];
+	}
+	for (size_t i = 0; i < numBins; i++) {
+		infile >> (*scales)[i];
+	}
+	return true;
+}
+
 void loadLocalParameters(std::string parName) {
 	std::ifstream infile(parName.c_str());
 	std::string line;
@@ -331,8 +475,10 @@ void loadLocalParameters(std::string parName) {
 			lss >> numCombineCVSets;
 		else if (var == "numCombineSubnets")
 			lss >> numCombineSubnets;
-		else if (var == "combineNetsSelectPerCV")
-			lss >> combineNetsSelectPerCV;
+		else if (var == "combineLongNetsSelectPerCV")
+			lss >> combineLongNetsSelectPerCV;
+		else if (var == "combineShortNetsSelectPerCV")
+			lss >> combineShortNetsSelectPerCV;
 		else if (var == "combineWithMinBackupWeights")
 			lss >> combineWithMinBackupWeights;
 		else if (var == "binToCombineOn")
@@ -349,5 +495,9 @@ void loadLocalParameters(std::string parName) {
 			lss >> discardSamples;
 		else if (var == "testExplicitFile")
 			lss >> testExplicitFile;
+		else if (var == "combineOutputScaling")
+			lss >> combineOutputScaling;
+		else if (var == "combineMergeSubnetsByCV")
+			lss >> combineMergeSubnetsByCV;
 	}
 }

@@ -10,6 +10,8 @@
 #define savestring "../stockproj/saveweights/"
 #endif
 
+bool mt4PrintResults = false;
+
 struct SelectionCriteria {
 	size_t minSubnetSelect;
 	size_t oppositeMinSubnetSelect;
@@ -30,8 +32,9 @@ std::deque<float> inputqueue;
 size_t numCombineCVSets = 1;
 size_t numCombineSubnets = 1;
 
-size_t combineNetsSelectPerCV = 7;
-size_t finalCombineCVsToSelect = 5;
+size_t combineLongNetsSelectPerCV = 9;
+size_t combineShortNetsSelectPerCV = 8;
+size_t finalCombineCVsToSelect = 2;
 
 bool combineWithMinBackupWeights = true;
 
@@ -49,6 +52,7 @@ void loadLocalParameters(std::string parName);
 
 int main() {
 	srand((size_t)time(NULL));
+	setStrings(datastring, savestring);
 #ifdef LOCAL
 	loadLocalParameters("pars.cfg");
 	loadParameters("pars.cfg");
@@ -56,7 +60,6 @@ int main() {
 	loadLocalParameters("../stockproj/pars.cfg");
 	loadParameters("../stockproj/pars.cfg");
 #endif
-	setStrings(datastring, savestring);
 
 	longsubnets.resize(numCombineCVSets);
 	shortsubnets.resize(numCombineCVSets);
@@ -65,6 +68,7 @@ int main() {
 		shortsubnets[i].resize(numCombineSubnets);
 	}
 
+	std::cout << "Printing results: " << mt4PrintResults << std::endl;
 	std::cout << "Loading subnets: ";
 	for (size_t cv = 0; cv < numCombineCVSets || numCombineCVSets == 0; cv++) {
 		for (size_t sub = 0; sub < numCombineSubnets; sub++) {
@@ -240,14 +244,18 @@ void loadLocalParameters(std::string parName) {
 			lss >> numCombineCVSets;
 		else if (var == "numCombineSubnets")
 			lss >> numCombineSubnets;
-		else if (var == "combineNetsSelectPerCV")
-			lss >> combineNetsSelectPerCV;
+		else if (var == "combineLongNetsSelectPerCV")
+			lss >> combineLongNetsSelectPerCV;
+		else if (var == "combineShortNetsSelectPerCV")
+			lss >> combineShortNetsSelectPerCV;
 		else if (var == "combineWithMinBackupWeights")
 			lss >> combineWithMinBackupWeights;
 		else if (var == "binToCombineOn")
 			lss >> binToCombineOn;
 		else if (var == "finalCombineCVsToSelect")
 			lss >> finalCombineCVsToSelect;
+		else if (var == "mt4PrintResults")
+			lss >> mt4PrintResults;
 	}
 }
 
@@ -365,10 +373,13 @@ size_t selectTrade(std::vector<float> inputs) {
 					numShortTestSelected++;
 			}
 		}
-		if (numLongTestSelected >= combineNetsSelectPerCV) {
+		if (mt4PrintResults) {
+			std::cout << "(" << numLongTestSelected << "/" << numShortTestSelected << ") ";
+		}
+		if (numLongTestSelected >= combineLongNetsSelectPerCV) {
 			numLongCVSelected++;
 		}
-		if (numShortTestSelected >= combineNetsSelectPerCV) {
+		if (numShortTestSelected >= combineShortNetsSelectPerCV) {
 			numShortCVSelected++;
 		}
 	}
@@ -378,6 +389,9 @@ size_t selectTrade(std::vector<float> inputs) {
 	if (numShortCVSelected >= finalCombineCVsToSelect) {
 		tradeShort = true;
 	}
+
+	if (mt4PrintResults)
+		std::cout << std::endl;
 
 	if (!(tradeLong || tradeShort))
 		return 0;

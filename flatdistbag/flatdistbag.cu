@@ -19,6 +19,7 @@ void loadLocalParameters(std::string parName);
 
 int main() {
 	srand((size_t)time(NULL));
+	setStrings(datastring, savestring);
 	loadParameters("pars.cfg");
 	loadLocalParameters("pars.cfg");
 	size_t numCrossVals = 1;
@@ -34,7 +35,6 @@ int main() {
 		loadParameters("../stockproj/pars.cfg");
 		loadLocalParameters("../stockproj/pars.cfg");
 #endif
-		setStrings(datastring, savestring);
 
 		if (flatDistCrossVal) {
 			std::stringstream rss;
@@ -58,7 +58,12 @@ int main() {
 
 		std::cout << "Sample distribution by bin: " << std::endl;
 		for (size_t i = 0; i < numBins; i++) {
-			std::cout << binMin + i*binWidth << "-" << binMin + (i + 1)*binWidth << ": " << binset[i].size() << std::endl;
+			if (i == 0)
+				std::cout << "< " << binEdges[0] << ": " << binset[i].size() << std::endl;
+			else if (i == numBins - 1)
+				std::cout << "> " << binEdges[numBins - 2] << ": " << binset[i].size() << std::endl;
+			else
+				std::cout << binEdges[i - 1] << "-" << binEdges[i] << ": " << binset[i].size() << std::endl;
 		}
 
 		std::cout << "Creating " << flatDistBagSetNum << " flat distribution sets" << std::endl;
@@ -100,7 +105,12 @@ int main() {
 
 			std::cout << "New set distribution by bin: " << std::endl;
 			for (size_t i = 0; i < numBins; i++) {
-				std::cout << binMin + i*binWidth << "-" << binMin + (i + 1)*binWidth << ": " << binCount[i] << std::endl;
+				if (i == 0)
+					std::cout << "< " << binEdges[0] << ": " << binCount[i] << std::endl;
+				else if (i == numBins - 1)
+					std::cout << "> " << binEdges[numBins - 2] << ": " << binCount[i] << std::endl;
+				else
+					std::cout << binEdges[i - 1] << "-" << binEdges[i] << ": " << binCount[i] << std::endl;
 			}
 		}
 	}

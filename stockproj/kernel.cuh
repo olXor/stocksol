@@ -133,7 +133,7 @@ __global__ void bpMaxPool(MaxPoolMatrices* mat, MaxPoolParameters* pars);
 __global__ void calcFixedNet(FixedNetMatrices* mat, FixedNetParameters* pars);
 __global__ void bpFixedNet(FixedNetMatrices* mat, FixedNetParameters* pars, float stepfactor);
 
-__global__ void calculateOutputError(FixedNetMatrices* mat, float* stepfactor, float* correctoutput, float* hostoutput);
+__global__ void calculateOutputError(FixedNetMatrices* mat, float* stepfactor, float* correctoutput, float* hostoutput, float* errorCorrections = NULL, float weight = 1.0f);
 
 __global__ void initConvDropoutFactors(ConvolutionMatrices* mat, ConvolutionParameters* pars, size_t seed, size_t sequenceStart);
 __global__ void initFixedDropoutFactors(FixedNetMatrices* mat, FixedNetParameters* pars, size_t seed, size_t sequenceStart);

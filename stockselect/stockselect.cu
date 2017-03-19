@@ -37,6 +37,10 @@ size_t oppositeMinSubnetSelect = 1;
 
 std::vector<LayerCollection> longsubnets;
 std::vector<LayerCollection> shortsubnets;
+std::vector<std::vector<float>> scales;
+std::vector<std::vector<float>> means;
+
+bool selectOutputScaling = true;
 
 bool longSelection = true;
 bool shortSelection = false;
@@ -60,6 +64,7 @@ bool loadSelectionCriteria(SelectionCriteria* crit);
 void printSelectionCriteria(SelectionCriteria crit);
 void generateSubnetResults();
 void evaluateMaxBinSelection(size_t bin, size_t numSubnetsToSelect, bool print, float* totalProfits = NULL, float* averageProfits = NULL);
+bool loadScales(std::vector<float>* means, std::vector<float>* scales, std::string fname);
 
 size_t numSelectCrossValSets = 0;
 
@@ -74,6 +79,8 @@ int main() {
 		exit(0);
 	checkCudaErrors(cudaSetDeviceFlags(cudaDeviceMapHost));
 
+	setStrings(datastring, savestring);
+
 #ifdef LOCAL
 	loadLocalParameters("pars.cfg");
 	loadParameters("pars.cfg");
@@ -82,10 +89,14 @@ int main() {
 	loadParameters("../stockproj/pars.cfg");
 #endif
 
-	setStrings(datastring, savestring);
-
 	longsubnets.resize(numSubnets);
 	shortsubnets.resize(numSubnets);
+	scales.resize(2 * numSubnets);
+	for (size_t i = 0; i < 2 * numSubnets; i++)
+		scales[i].resize(numBins);
+	means.resize(2 * numSubnets);
+	for (size_t i = 0; i < 2 * numSubnets; i++)
+		means[i].resize(numBins);
 	std::vector<std::vector<float>> maxValTotalProfits(numSelectCrossValSets);	//by subnet number
 	std::vector<std::vector<float>> maxValAverageProfits(numSelectCrossValSets);
 	for (size_t cv = 0; cv < numSelectCrossValSets || numSelectCrossValSets == 0; cv++) {
@@ -120,6 +131,13 @@ int main() {
 #endif
 					return 0;
 				}
+				if (selectOutputScaling && !loadScales(&means[i], &scales[i], wss.str().c_str())) {
+					std::cout << "Couldn't find long scales file #" << i + 1 << std::endl;
+#ifdef LOCAL
+					system("pause");
+#endif
+					return 0;
+				}
 			}
 			if (shortSelection) {
 				shortsubnets[i] = createLayerCollection(0, getLCType());
@@ -138,6 +156,13 @@ int main() {
 				//std::cout << "Loading subnet " << wss.str().c_str() << std::endl;
 				if (!loadWeights(shortsubnets[i], wss.str().c_str())) {
 					std::cout << "couldn't find short weights file #" << i + 1 << std::endl;
+#ifdef LOCAL
+					system("pause");
+#endif
+					return 0;
+				}
+				if (selectOutputScaling && !loadScales(&means[i+numSubnets], &scales[i+numSubnets], wss.str().c_str())) {
+					std::cout << "Couldn't find short scales file #" << i + 1 << std::endl;
 #ifdef LOCAL
 					system("pause");
 #endif
@@ -231,10 +256,16 @@ void generateSubnetResults() {
 	for (size_t i = 0; i < 2*numSubnets; i++) {
 		LayerCollection layers;
 		size_t subnetPos = i % numSubnets;
-		if (i < numSubnets)
+		if (i < numSubnets) {
+			if (!longSelection)
+				continue;
 			layers = longsubnets[subnetPos];
-		else
+		}
+		else {
+			if (!shortSelection)
+				continue;
 			layers = shortsubnets[subnetPos];
+		}
 
 		if (layers.numConvolutions > 0) {
 			if (layers.convPars[0].numInputLocs != NUM_INPUTS || layers.convPars[0].numInputNeurons != 1)
@@ -271,10 +302,16 @@ void generateSubnetResults() {
 		for (size_t j = 0; j < 2 * numSubnets; j++) {
 			LayerCollection layers;
 			size_t subnetPos = j % numSubnets;
-			if (j < numSubnets)
+			if (j < numSubnets) {
+				if (!longSelection)
+					continue;
 				layers = longsubnets[subnetPos];
-			else
+			}
+			else {
+				if (!shortSelection)
+					continue;
 				layers = shortsubnets[subnetPos];
+			}
 
 			checkCudaErrors(cudaMemcpyAsync(d_inputs[j], &(*dataset)[i].inputs[0], NUM_INPUTS*sizeof(float), cudaMemcpyHostToDevice, mainStream));
 
@@ -285,9 +322,15 @@ void generateSubnetResults() {
 			calculateOutputError << <1, numBins, 0, mainStream >> >(layers.d_fixedMat[layers.numFixedNets - 1], layers.stepfactor, layers.correctoutput, d_output[j]);
 		}
 		checkCudaErrors(cudaDeviceSynchronize());
-		for (size_t j = 0; j < 2 * numSubnets; j++)
+		for (size_t j = 0; j < 2 * numSubnets; j++) {
+			if ((j < numSubnets && !longSelection) || (j >= numSubnets && !shortSelection))
+				continue;
 			for (size_t k = 0; k < numBins; k++)
-				subnetResults[i][j][k] = h_output[j][k];
+				if (selectOutputScaling)
+					subnetResults[i][j][k] = scales[j][k] * (h_output[j][k] - means[j][k]);
+				else
+					subnetResults[i][j][k] = h_output[j][k];
+		}
 	}
 }
 
@@ -305,6 +348,8 @@ float evaluateSelectionCriteria(SelectionCriteria crit, bool print) {
 		size_t numShortTestSelected = 0;
 		size_t numShortOppositeSelected = 0;
 		for (size_t j = 0; j < 2 * numSubnets; j++) {
+			if ((j < numSubnets && !longSelection) || (j >= numSubnets && !shortSelection))
+				continue;
 			bool testSelected = true;
 			bool oppositeSelected = true;
 			for (size_t k = 0; k < numBins; k++) {
@@ -455,6 +500,8 @@ void loadLocalParameters(std::string parName) {
 			lss >> numSelectCrossValSets;
 		else if (var == "selectOnMinBackupWeights")
 			lss >> selectOnMinBackupWeights;
+		else if (var == "selectOutputScaling")
+			lss >> selectOutputScaling;
 	}
 }
 
@@ -618,6 +665,8 @@ void evaluateMaxBinSelection(size_t bin, size_t numSubnetsToSelect, bool print, 
 		size_t numLongTestSelected = 0;
 		size_t numShortTestSelected = 0;
 		for (size_t j = 0; j < 2 * numSubnets; j++) {
+			if ((j < numSubnets && !longSelection) || (j >= numSubnets && !shortSelection))
+				continue;
 			float maxBinWeight = 0.0f;
 			size_t maxBin = 0;
 			for (size_t k = 0; k < numBins; k++) {
@@ -683,4 +732,27 @@ void evaluateMaxBinSelection(size_t bin, size_t numSubnetsToSelect, bool print, 
 		totalProfits[0] = longProfit + shortProfit;
 	if (averageProfits != NULL)
 		averageProfits[0] = (longProfit + shortProfit) / (numLongTrades + numShortTrades);
+}
+
+bool loadScales(std::vector<float>* means, std::vector<float>* scales, std::string fname) {
+	scales->resize(numBins);
+	means->resize(numBins);
+
+	std::stringstream fss;
+	fss << savestring << fname << "scales";
+
+	if (!PathFileExists(fss.str().c_str())) {
+		std::cout << "No scales file found for file " << fname << std::endl;
+		return false;
+	}
+
+	std::ifstream infile(fss.str().c_str());
+	
+	for (size_t i = 0; i < numBins; i++) {
+		infile >> (*means)[i];
+	}
+	for (size_t i = 0; i < numBins; i++) {
+		infile >> (*scales)[i];
+	}
+	return true;
 }

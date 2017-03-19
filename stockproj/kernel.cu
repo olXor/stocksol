@@ -414,8 +414,10 @@ __global__ void batchUpdateFixedWeights(FixedNetMatrices* mat, FixedNetParameter
 }
 #endif
 
-__global__ void calculateOutputError(FixedNetMatrices* mat, float* stepfactor, float* correctoutput, float* hostoutput) {
-	float error = *stepfactor*(mat->outlayer[threadIdx.x] - correctoutput[threadIdx.x]);
+__global__ void calculateOutputError(FixedNetMatrices* mat, float* stepfactor, float* correctoutput, float* hostoutput, float* errorCorrections, float weight) {
+	float error = *stepfactor*weight*(mat->outlayer[threadIdx.x] - correctoutput[threadIdx.x]);
+	if (errorCorrections != NULL)
+		error += *stepfactor*errorCorrections[threadIdx.x];
 	mat->outErrors[threadIdx.x] = error;
 	hostoutput[threadIdx.x] = mat->outlayer[threadIdx.x];
 }

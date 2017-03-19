@@ -84,6 +84,8 @@ size_t resultSaveSampleNumStart = 0;
 
 size_t declaredTotalSamples = 0;
 
+float binOutAverageTrainReg = 0.0f;
+
 float annealingMultiplier() {
 	if (lastErrors.size() == 0 || annealingStartError == 0)
 		return 1;
@@ -122,6 +124,9 @@ int main() {
 
 	loadParameters("pars.cfg");
 	loadLocalParameters();
+
+	if (binOutAverageTrainReg != 0)
+		initializeDOutAverages();
 
 	size_t numBagSubnets = 1;
 	if (trainStockBAGSet) {
@@ -270,6 +275,8 @@ int main() {
 			}
 			skipDataSetLoad = false;
 
+			generateTrainWeightBins();
+
 			std::cout << "Calculating initial error: ";
 			disableDropout();
 			auto initstart = std::chrono::high_resolution_clock::now();
@@ -314,8 +321,9 @@ int main() {
 			delete[] testInitSecError;
 
 			bool belowStallThresh = false;
+			std::vector<float> outAverages(numBins);
+			std::vector<float> lastGoodOutAverages(numBins);
 			while (true) {
-
 				if (pairedTraining)
 					std::cout << nIter << "+1 runs on " << numSamples << " sample pairs";
 				else
@@ -337,7 +345,15 @@ int main() {
 					if (pairedTraining)
 						runPairedSim(pairedLayers, true, stepMultiplier(numRuns), trainSamples);
 					else {
-						runSim(layers, true, stepMultiplier(numRuns), trainSamples);
+						if (binOutAverageTrainReg != 0)
+							runSim(layers, true, stepMultiplier(numRuns), trainSamples, false, NULL, false, &outAverages[0]);
+						else
+							runSim(layers, true, stepMultiplier(numRuns), trainSamples);
+					}
+					if (binOutAverageTrainReg != 0) {
+						for(size_t j=0;j<numBins;j++) {
+							outAverages[j] *= binOutAverageTrainReg;
+						}
 					}
 #ifdef BATCH_MODE
 					if (pairedTraining) {
@@ -413,9 +429,11 @@ int main() {
 						loadSimVariables();
 						stepAdjustment *= redoStepAdjustment;
 						saveSimVariables();
+						outAverages = lastGoodOutAverages;
 						continue;
 					}
 					stepAdjustment *= successStepAdjustment;
+					lastGoodOutAverages = outAverages;
 				}
 				prevPrimaryAfterError = primaryAfterError;
 				updateLastErrors(primaryAfterError);
@@ -493,8 +511,12 @@ int main() {
 
 				saveSimVariables();
 			}
+			if (numTrainCrossValSets == 0)
+				break;
 		}
 	}
+
+	system("pause");
 }
 
 void saveResults(size_t numRuns, float afterError, float* afterSecError, float testAfterError, float* testAfterSecError, float testSampleAfterError) {
@@ -724,6 +746,8 @@ void loadLocalParameters() {
 			lss >> resultSaveSampleNumStart;
 		else if (var == "declaredTotalSamples")
 			lss >> declaredTotalSamples;
+		else if (var == "binOutAverageTrainReg")
+			lss >> binOutAverageTrainReg;
 	}
 }
 

@@ -29,6 +29,8 @@ size_t backupInterval = 100;
 size_t testBackupSampleSize = 2;
 std::string testBackupHistoryLog = "backupHistoryLog";
 
+bool testMinBackup = false;
+
 bool testPrint = true;
 
 size_t readData(size_t begin, size_t numIOs);
@@ -36,6 +38,7 @@ void loadLocalParameters(std::string parName);
 
 int main() {
 	srand((size_t)time(NULL));
+	setStrings(datastring, savestring);
 #ifdef LOCAL
 	loadLocalParameters("pars.cfg");
 	loadParameters("pars.cfg");
@@ -43,7 +46,6 @@ int main() {
 	loadLocalParameters("../stockproj/pars.cfg");
 	loadParameters("../stockproj/pars.cfg");
 #endif
-	setStrings(datastring, savestring);
 
 	readData(testBegin, testNumIOs);
 
@@ -60,6 +62,11 @@ int main() {
 		if (testBackups) {
 			std::stringstream savess;
 			savess << "backup/" << basename << testBackupSampleSize << "-" << backupNum;
+			savename = savess.str();
+		}
+		else if (testMinBackup) {
+			std::stringstream savess;
+			savess << "backup/" << savename << "Min";
 			savename = savess.str();
 		}
 		LayerCollection layers;
@@ -118,8 +125,12 @@ int main() {
 						error /= numSamples;
 				}
 			}
-			else
-				error = runSim(layers, false, 0, 0, testPrint);
+			else {
+				std::ofstream outfile;
+				if (testOutputFile != "")
+					outfile.open(testOutputFile);
+				error = runSim(layers, false, 0, 0, testPrint, NULL, false, NULL, &outfile);
+			}
 		}
 
 		auto testelapsed = std::chrono::high_resolution_clock::now() - teststart;
@@ -226,5 +237,7 @@ void loadLocalParameters(std::string parName) {
 			lss >> testBackupSampleSize;
 		else if (var == "testBackupHistoryLog")
 			lss >> testBackupHistoryLog;
+		else if (var == "testMinBackup")
+			lss >> testMinBackup;
 	}
 }

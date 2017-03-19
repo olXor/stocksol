@@ -26,6 +26,7 @@ struct IOPair {
 	std::vector<float> correctbins;
 	std::vector<float> secondarybins;
 	size_t samplenum;
+	float weight = 1.0f;
 };
 
 struct LayerCollection {
@@ -60,7 +61,7 @@ struct PairedConvCollection {
 void setStrings(std::string data, std::string save);
 void freeMemory();
 size_t readTrainSet(std::string learnsetname, size_t begin = 1, size_t numIOs = 0, bool overrideBinningSwitch = false, bool runOnTestSet = false);
-float runSim(LayerCollection layers, bool train, float customStepFactor, size_t samples = 0, bool print = false, float* secondaryError = NULL, bool runOnTestSet = false);
+float runSim(LayerCollection layers, bool train, float customStepFactor, size_t samples = 0, bool print = false, float* secondaryError = NULL, bool runOnTestSet = false, float* outAverages = NULL, std::ofstream* outfile = NULL);
 float runPairedSim(PairedConvCollection layers, bool train, float customStepFactor, size_t samples = 0, bool print = false, size_t pairsAveraged = 0);
 float testSim(LayerCollection layers, std::string ofname = "");
 void saveWeights(LayerCollection layers, std::string fname);
@@ -118,4 +119,9 @@ float stdev(std::vector<float> in, float mean);
 
 void markTime();
 long long getTimeSinceMark();
+
+void initializeDOutAverages();
+
+void generateTrainWeightBins();
+
 #endif
