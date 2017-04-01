@@ -33,6 +33,8 @@ extern float binMax;
 extern float binWidth;
 
 extern std::vector<float> binEdges;
+extern std::vector<float> testBinFreqs;
+extern bool trainOrderedByBin;
 
 extern std::string savename;
 extern std::string trainstring;

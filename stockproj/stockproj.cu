@@ -24,7 +24,7 @@ void saveResults(size_t numRuns, float afterError, float* afterSecError, float t
 bool loadLastResults(float* afterError, float* afterSecError, float* testAfterError, float* testAfterSecError, float* testSampleAfterError);
 void saveSetHistory(size_t nSamples, size_t nRuns, float stepFacMult);
 void loadLocalParameters();
-void loadSimVariables();
+void loadSimVariables(bool userParams = false);
 void saveSimVariables();
 size_t readData(size_t begin, size_t numIOs, bool readTestSet = false);
 void backupFiles(std::string backname);
@@ -275,7 +275,9 @@ int main() {
 			}
 			skipDataSetLoad = false;
 
+			fillTrainsetIndicesByBin();
 			generateTrainWeightBins();
+			loadSimVariables();	//not really efficent to do this again but whatever
 
 			std::cout << "Calculating initial error: ";
 			disableDropout();
@@ -386,7 +388,7 @@ int main() {
 				if (printTestError && trainSamples >= minTrainSizeToPrintTestError && !pairedTraining) {
 					for (size_t i = 0; i < numSecErrors; i++)
 						testAfterSecError[i] = 0.0f;
-					testAfterError = runSim(layers, false, 0, 0, false, testAfterSecError, true);
+					testAfterError = runSim(layers, false, 0, 0, false, testAfterSecError, true, NULL, NULL, true);
 					if (testUseSampleFile)
 						testSampleAfterError = sampleTestSim(layers, NULL, false, false, true);
 				}
@@ -410,7 +412,7 @@ int main() {
 				}
 				std::cout << std::endl;
 
-				loadSimVariables();	//to allow the user to change variables mid-run
+				loadSimVariables(true);	//to allow the user to change variables mid-run
 
 				float primaryAfterError;
 				if (primaryErrorType == 0)
@@ -571,7 +573,7 @@ void saveSetHistory(size_t nSamples, size_t nRuns, float stepFacMult) {
 	hisfile << nSamples << " " << stepFacMult << " " << nRuns << std::endl;
 }
 
-void loadSimVariables() {
+void loadSimVariables(bool userParams) {
 	std::stringstream pss;
 	pss << savestring << savename << "pars";
 	std::ifstream infile(pss.str().c_str());
@@ -593,6 +595,11 @@ void loadSimVariables() {
 			lss >> numRunSetStart;
 		if (var == "minTestError")
 			lss >> minTestError;
+		if (!userParams && var == "testBinFreqs") {
+			testBinFreqs.resize(numBins);
+			for (size_t i = 0; i < numBins; i++)
+				lss >> testBinFreqs[i];
+		}
 	}
 }
 
@@ -608,6 +615,13 @@ void saveSimVariables() {
 	outfile << "numRunSetStart " << numRunSetStart << std::endl;
 	if (backupMinTestError)
 		outfile << "minTestError " << minTestError << std::endl;
+	if (trainOrderedByBin) {
+		outfile << "testBinFreqs ";
+		for (size_t i = 0; i < numBins; i++)
+			outfile << testBinFreqs[i] << " ";
+		outfile << std::endl;
+	}
+		
 }
 
 size_t readData(size_t begin, size_t numIOs, bool readTestSet) {
