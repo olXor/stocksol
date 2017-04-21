@@ -36,6 +36,10 @@ int main() {
 		loadLocalParameters("../stockproj/pars.cfg");
 #endif
 
+		std::stringstream binss;
+		binss << binEdgeFile << i + 1;
+		loadBinEdges(binss.str());
+
 		if (flatDistCrossVal) {
 			std::stringstream rss;
 			rss << randtrainstring << i + 1;

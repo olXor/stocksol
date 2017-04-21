@@ -1,15 +1,27 @@
-#include <stockrun.cuh>
-#include "Shlwapi.h"
+#include <iostream>
+#include <sstream>
+#include <string>
+#include <vector>
+#include "cpucompute.h"
+#include <fstream>
+#include <list>
 
-//#define DEBUG_SAVE_INTERNAL_RESULTS
-
-#ifdef LOCAL
-#define datastring "rawdata/"
 #define savestring "saveweights/"
-#else
-#define datastring "../stockproj/rawdata/"
-#define savestring "../stockproj/saveweights/"
-#endif
+#define datastring "rawdata/"
+
+#define NUM_INPUTS 136
+
+//super quick and dirty cpu tester
+
+std::vector<std::vector<float>> dataset;
+size_t NUM_NEURONS = 32;
+size_t numFixedHiddenNeurons = 1024;
+
+std::string savename;
+
+void loadParameters(std::string parName);
+void createWeightLayers();
+bool loadWeights(std::vector<Layer*> layers, std::string fname);
 
 std::string datafname = "trainset";
 std::string resultfname = "calcresults";
@@ -26,27 +38,23 @@ bool discardIntervalRemainder = true;
 
 size_t currentLineNum = 1;
 
-LayerCollection weightlayers;
+std::vector<Layer*> weightlayers;
 
 std::vector<std::list<float>> inputs;
 
 bool readIntervalParameters(std::ifstream* intervalfile);
-bool readIntervalData(std::ifstream* datafile, std::vector<std::vector<IOPair>>* intervalData, size_t* iBegin, size_t* iEnd);
-void saveIntervalResult(std::ofstream* resultfile, std::vector<std::vector<IOPair>>* intervalData, bool print);
+bool readIntervalData(std::ifstream* datafile, std::vector<std::vector<std::vector<float>>>* intervalData, size_t* iBegin, size_t* iEnd);
+void saveIntervalResult(std::ofstream* resultfile, std::vector<std::vector<std::vector<float>>>* intervalData, bool print);
+bool discardInput(float* inputs);
+float mean(std::vector<float> in);
+float stdev(std::vector<float> in, float mean);
 
 #ifdef DEBUG_SAVE_INTERNAL_RESULTS
 void debugSaveInternalResults();
 #endif
 
 int main() {
-	srand((size_t)time(NULL));
-
-	setStrings(datastring, savestring);
-#ifdef LOCAL
 	loadParameters("pars.cfg");
-#else
-	loadParameters("../stockproj/pars.cfg");
-#endif
 
 	columns.push_back(1);
 	columns.push_back(2);
@@ -135,8 +143,7 @@ int main() {
 	else
 		keepExtraData = false;
 
-	weightlayers = createLayerCollection(0, FULL_NETWORK);
-	initializeLayers(&weightlayers);
+	createWeightLayers();
 	if (!loadWeights(weightlayers, weightfname)) {
 		std::cout << "Couldn't open weights file" << std::endl;
 		system("pause");
@@ -175,7 +182,7 @@ int main() {
 			return 0;
 		}
 
-		std::vector<std::vector<IOPair>> intervalData;
+		std::vector<std::vector<std::vector<float>>> intervalData;
 		intervalData.resize(columns.size());
 		inputs.resize(columns.size());
 		for (size_t i = 0; i < columns.size(); i++) {
@@ -196,7 +203,7 @@ int main() {
 			}
 			if (print)
 				std::cout << " | " << std::endl;
-			resultfile << datafname << " " << columns[0] << " " << iBegin << " " << iEnd << " ";
+			resultfile << inum << " " << datafname << " " << iBegin << " " << iEnd << " ";
 			saveIntervalResult(&resultfile, &intervalData, print);
 			inum++;
 		}
@@ -208,7 +215,68 @@ int main() {
 	system("pause");
 }
 
-bool readIntervalData(std::ifstream* datafile, std::vector<std::vector<IOPair>>* intervalData, size_t* iBegin, size_t* iEnd) {
+void createWeightLayers() {
+	weightlayers.push_back((Layer*)new ConvolutionLayer(1, 136, NUM_NEURONS, 128, 9, TRANSFER_TYPE_RECTIFIER));
+	weightlayers.push_back((Layer*)new MaxPoolLayer(NUM_NEURONS, 128));
+	weightlayers.push_back((Layer*)new ConvolutionLayer(NUM_NEURONS, 64, NUM_NEURONS, 60, 5, TRANSFER_TYPE_RECTIFIER));
+	weightlayers.push_back((Layer*)new MaxPoolLayer(NUM_NEURONS, 60));
+	weightlayers.push_back((Layer*)new ConvolutionLayer(NUM_NEURONS, 30, NUM_NEURONS, 26, 5, TRANSFER_TYPE_RECTIFIER));
+	weightlayers.push_back((Layer*)new MaxPoolLayer(NUM_NEURONS, 26));
+	weightlayers.push_back((Layer*)new ConvolutionLayer(NUM_NEURONS, 13, NUM_NEURONS, 10, 4, TRANSFER_TYPE_RECTIFIER));
+	weightlayers.push_back((Layer*)new MaxPoolLayer(NUM_NEURONS, 10));
+	weightlayers.push_back((Layer*)new ConvolutionLayer(NUM_NEURONS, 5, NUM_NEURONS, 4, 2, TRANSFER_TYPE_RECTIFIER));
+	weightlayers.push_back((Layer*)new MaxPoolLayer(NUM_NEURONS, 4));
+	weightlayers.push_back((Layer*)new FixedLayer(2 * NUM_NEURONS, numFixedHiddenNeurons, TRANSFER_TYPE_RECTIFIER));
+	weightlayers.push_back((Layer*)new FixedLayer(numFixedHiddenNeurons, 1, TRANSFER_TYPE_LINEAR));
+
+	for (size_t i = 1; i < weightlayers.size(); i++) {
+		weightlayers[i]->link(weightlayers[i - 1]);
+	}
+}
+
+bool loadWeights(std::vector<Layer*> layers, std::string fname) {
+	std::stringstream fss;
+	fss << savestring << fname;
+
+	std::ifstream infile(fss.str().c_str());
+
+	if (!infile.is_open()) {
+		std::cout << "Couldn't open weights file" << std::endl;
+		throw new std::runtime_error("");
+	}
+
+	for (size_t lay = 0; lay < layers.size(); lay++) {
+		layers[lay]->loadWeights(&infile);
+	}
+
+	return true;
+}
+
+void loadParameters(std::string parName) {
+	std::ifstream infile(parName.c_str());
+	std::string line;
+	while (getline(infile, line)) {
+		std::stringstream lss(line);
+		std::string var;
+		lss >> var;
+		if (var == "NUM_NEURONS")
+			lss >> NUM_NEURONS;
+		else if (var == "savename")
+			lss >> savename;
+		else if (var == "numFixedHiddenNeurons")
+			lss >> numFixedHiddenNeurons;
+		else if (var == "NUM_INPUTS") {
+			size_t numInputs;
+			lss >> numInputs;
+			if (numInputs != 136) {
+				std::cout << "Currently only supports NUM_INPUTS=136" << std::endl;
+				throw new std::runtime_error("");
+			}
+		}
+	}
+}
+
+bool readIntervalData(std::ifstream* datafile, std::vector<std::vector<std::vector<float>>>* intervalData, size_t* iBegin, size_t* iEnd) {
 	for (size_t i = 0; i < intervalData->size();i++)
 		(*intervalData)[i].clear();
 	std::string line;
@@ -241,30 +309,30 @@ bool readIntervalData(std::ifstream* datafile, std::vector<std::vector<IOPair>>*
 				inputs[c].pop_front();
 
 			if (inputs[c].size() == NUM_INPUTS) {
-				IOPair io;
-				io.inputs.resize(NUM_INPUTS);
+				std::vector<float> io;
+				io.resize(NUM_INPUTS);
 				size_t n = 0;
 				for (std::list<float>::iterator it = inputs[c].begin(); it != inputs[c].end(); it++) {
-					io.inputs[n] = *it;
+					io[n] = *it;
 					n++;
 				}
 
 				float maxinput = -999999;
 				float mininput = 999999;
 				for (size_t j = 0; j < NUM_INPUTS; j++) {
-					if (io.inputs[j] > maxinput)
-						maxinput = io.inputs[j];
-					if (io.inputs[j] < mininput)
-						mininput = io.inputs[j];
+					if (io[j] > maxinput)
+						maxinput = io[j];
+					if (io[j] < mininput)
+						mininput = io[j];
 				}
 				for (size_t j = 0; j<NUM_INPUTS; j++) {
 					if (maxinput > mininput)
-						io.inputs[j] = 2 * (io.inputs[j] - mininput) / (maxinput - mininput) - 1;
+						io[j] = 2 * (io[j] - mininput) / (maxinput - mininput) - 1;
 					else
-						io.inputs[j] = 0;
+						io[j] = 0;
 				}
 
-				if (!discard || !discardInput(&io.inputs[0]))
+				if (!discard || !discardInput(&io[0]))
 					(*intervalData)[c].push_back(io);
 			}
 		}
@@ -273,48 +341,45 @@ bool readIntervalData(std::ifstream* datafile, std::vector<std::vector<IOPair>>*
 	return i > 0;
 }
 
-void saveIntervalResult(std::ofstream* resultfile, std::vector<std::vector<IOPair>>* intervalData, bool print) {
-	float* d_inputs;
-	if (weightlayers.numConvolutions > 0) {
-		if (weightlayers.convPars[0].numInputLocs != NUM_INPUTS || weightlayers.convPars[0].numInputNeurons != 1)
-			throw std::runtime_error("inputs to first layer don't match data set");
-		d_inputs = weightlayers.convMat[0].inlayer;
+bool discardInput(float* inputs) {
+	if (NUM_INPUTS < 10)
+		return false;
+
+	float begAvg = 0;
+	for (size_t i = 0; i < 5; i++) {
+		begAvg += inputs[i];
 	}
-	else if (weightlayers.numFixedNets > 0) {
-		if (weightlayers.fixedPars[0].numInputNeurons != NUM_INPUTS)
-			throw std::runtime_error("inputs to first layer don't match data set");
-		d_inputs = weightlayers.fixedMat[0].inlayer;
+	begAvg /= 5;
+
+	float endAvg = 0;
+	for (size_t i = 0; i < 5; i++) {
+		endAvg += inputs[NUM_INPUTS - i - 1];
 	}
-	else
-		throw std::runtime_error("tried to run on a network with no convolutions and no fixed networks");
+	endAvg /= 5;
 
-	float* h_output = new float[numBins];
+	return fabs(begAvg - endAvg) > 1;
+}
 
-	if (numBins > 1) {
-		std::cout << "This program doesn't work with binned networks at the moment, sorry!" << std::endl;
-		throw new std::runtime_error("This program doesn't work with binned networks at the moment, sorry!");
-	}
-
-	disableDropout();
-	generateDropoutMask(&weightlayers);
-
+void saveIntervalResult(std::ofstream* resultfile, std::vector<std::vector<std::vector<float>>>* intervalData, bool print) {
 	size_t columnnum = 1;
 	for (size_t c = 0; c < columns.size(); c++) {
 		std::vector<float> sampleoutputs;
 	
 		for (size_t i = 0; i < (*intervalData)[c].size(); i++) {
 			//----calculate----
-			checkCudaErrors(cudaMemcpy(d_inputs, &(*intervalData)[c][i].inputs[0], NUM_INPUTS*sizeof(float), cudaMemcpyHostToDevice));
+			memcpy(&weightlayers[0]->inlayer[0], &(*intervalData)[c][i][0], NUM_INPUTS*sizeof(float));
 
-			calculate(weightlayers);
+			for (size_t l = 0; l < weightlayers.size(); l++) {
+				weightlayers[l]->calc();
+			}
 
-			checkCudaErrors(cudaMemcpy(h_output, weightlayers.fixedMat[weightlayers.numFixedNets - 1].outlayer, numBins*sizeof(float), cudaMemcpyDeviceToHost));
 			//----end calculate-----
 
 #ifdef DEBUG_SAVE_INTERNAL_RESULTS
 			debugSaveInternalResults();
 #endif
-			sampleoutputs.push_back(h_output[0]);
+			float* outlayer = weightlayers[weightlayers.size() - 1]->outlayer;
+			sampleoutputs.push_back(outlayer[0]);
 		}
 
 		float origmean = mean(sampleoutputs);
@@ -343,7 +408,7 @@ void saveIntervalResult(std::ofstream* resultfile, std::vector<std::vector<IOPai
 			columnnum++;
 		}
 
-		if (usingIntervalFile && c > 0)
+		if (usingIntervalFile)
 			(*resultfile) << columns[c] << " ";
 
 		(*resultfile) << newmean << " " << newstdev << " " << numTotalPoints-numOutliersDiscarded << " " << numTotalPoints << " ";
@@ -377,43 +442,21 @@ bool readIntervalParameters(std::ifstream* intervalfile) {
 	return !done;
 }
 
-#ifdef DEBUG_SAVE_INTERNAL_RESULTS
-void debugSaveInternalResults() {
-	std::stringstream fname;
-	fname << savestring << "debugInternal";
-	std::ofstream outfile(fname.str());
-
-	for (size_t i = 0; i < weightlayers.numConvolutions; i++) {
-		ConvolutionMatrices mat = weightlayers.convMat[i];
-		ConvolutionParameters pars = weightlayers.convPars[i];
-
-		size_t numOutputs = mat.numOutputElements;
-		float* h_outputs  = new float[numOutputs];
-		checkCudaErrors(cudaMemcpy(h_outputs, mat.outlayer, numOutputs*sizeof(float), cudaMemcpyDeviceToHost));
-
-		outfile << "Convolution Layer " << i << ": " << std::endl;
-		for (size_t j = 0; j < pars.numOutputNeurons; j++) {
-			for (size_t k = 0; k < pars.numOutputLocs; k++) {
-				outfile << h_outputs[j + k*pars.numOutputNeurons] << " ";
-			}
-			outfile << std::endl;
-		}
-		outfile << std::endl;
+float mean(std::vector<float> in) {
+	float mean = 0;
+	for (size_t i = 0; i < in.size(); i++) {
+		mean += in[i];
 	}
-
-	for (size_t i = 0; i < weightlayers.numFixedNets; i++) {
-		FixedNetMatrices mat = weightlayers.fixedMat[i];
-		FixedNetParameters pars = weightlayers.fixedPars[i];
-
-		size_t numOutputs = mat.numOutputElements;
-		float* h_outputs  = new float[numOutputs];
-		checkCudaErrors(cudaMemcpy(h_outputs, mat.outlayer, numOutputs*sizeof(float), cudaMemcpyDeviceToHost));
-
-		outfile << "FixedNet Layer " << i << ": " << std::endl;
-		for (size_t j = 0; j < pars.numOutputNeurons; j++) {
-			outfile << h_outputs[j] << " ";
-		}
-		outfile << std::endl;
-	}
+	mean /= in.size();
+	return mean;
 }
-#endif
+
+float stdev(std::vector<float> in, float mean) {
+	float stdev = 0;
+	for (size_t i = 0; i < in.size(); i++) {
+		stdev += pow(in[i] - mean, 2);
+	}
+	stdev /= in.size();
+	stdev = sqrt(stdev);
+	return stdev;
+}

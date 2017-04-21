@@ -125,4 +125,6 @@ void generateTrainWeightBins();
 void fillTrainsetIndicesByBin();
 size_t getTrainsetIndexByBinFrequency();
 
+void loadBinEdges(std::string binEdgeFile);
+
 #endif

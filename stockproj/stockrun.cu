@@ -1,5 +1,6 @@
 #include "stockrun.cuh"
 #include <limits>
+#include <queue>
 
 std::vector<IOPair> trainset;
 std::vector<IOPair> testset;
@@ -29,6 +30,7 @@ float binMax = 200.0f;
 size_t numBins = 1;
 bool useBinEdgeFile = false;
 std::vector<float> binEdges;
+std::string binEdgeFile;
 
 float convDropoutWeight = 1.0f;
 float savedConvDropoutWeight = 1.0f;	//for retrieving when dropout is enabled after being disabled
@@ -71,10 +73,14 @@ std::vector<std::vector<size_t>> trainsetIndicesByBin;
 std::vector<float> testBinFreqs;
 size_t testMaxBin = 0;
 size_t testMinBin = 0;
+std::queue<size_t> chosenBins;
+std::vector<size_t> binRecentCount;
+size_t binFreqAveragingPeriod = 0;
 size_t nextTrainBin = 0;
 std::vector<size_t> nextBinIndices;
 
 void loadBinEdges(std::string binEdgeFile);
+void updateBins();
 
 void setStrings(std::string data, std::string save) {
 	datastring = data;
@@ -324,6 +330,29 @@ float runSim(LayerCollection layers, bool train, float customStepFactor, size_t 
 			if (updateBinFreqs) {
 				binCounts[maxBin]++;
 			}
+			if (train) {
+				if (binFreqAveragingPeriod > 0) {
+					chosenBins.push(maxBin);
+					binRecentCount[maxBin]++;
+					if (chosenBins.size() > binFreqAveragingPeriod) {
+						size_t oldBin = chosenBins.front();
+						chosenBins.pop();
+						binRecentCount[oldBin]--;
+					}
+					size_t max = 0;
+					size_t min = binFreqAveragingPeriod+1;
+					for (size_t i = 0; i < numBins; i++) {
+						if (binRecentCount[i] > max) {
+							max = binRecentCount[i];
+							testMaxBin = i;
+						}
+						if (binRecentCount[i] < min) {
+							min = binRecentCount[i];
+							testMinBin = i;
+						}
+					}
+				}
+			}
 		}
 		else {
 			float unsquare = (h_output[0] - sample.correctoutput);
@@ -414,19 +443,9 @@ float runSim(LayerCollection layers, bool train, float customStepFactor, size_t 
 		}
 	}
 
-	if (updateBinFreqs) {
-		float max = -99999;
-		float min = 99999;
+	if (updateBinFreqs && binnedOutput) {
 		for (size_t i = 0; i < numBins; i++) {
 			testBinFreqs[i] = 1.0f*binCounts[i] / dataset->size();
-			if (testBinFreqs[i] > max) {
-				max = testBinFreqs[i];
-				testMaxBin = i;
-			}
-			if (testBinFreqs[i] < min) {
-				min = testBinFreqs[i];
-				testMinBin = i;
-			}
 		}
 	}
 
@@ -1846,9 +1865,7 @@ void loadParameters(std::string parName) {
 		else if (var == "useBinEdgeFile")
 			lss >> useBinEdgeFile;
 		else if (var == "binEdgeFile") {
-			std::string binEdgeFile;
 			lss >> binEdgeFile;
-			loadBinEdges(binEdgeFile);
 		}
 		else if (var == "convDropoutWeight") {
 			lss >> convDropoutWeight;
@@ -1907,8 +1924,14 @@ void loadParameters(std::string parName) {
 			lss >> trainOrderedByBin;
 		else if (var == "trainMaxToMinTransferPeriod")
 			lss >> trainMaxToMinTransferPeriod;
+		else if (var == "binFreqAveragingPeriod")
+			lss >> binFreqAveragingPeriod;
 	}
 
+	updateBins();
+}
+
+void updateBins() {
 	if (binnedOutput) {
 		if (!useBinEdgeFile) {
 			numBins = (size_t)((binMax - binMin) / binWidth + 1);
@@ -1926,11 +1949,16 @@ void loadParameters(std::string parName) {
 		for (size_t i = 0; i < numBins; i++) {
 			testBinFreqs[i] = 1.0f / numBins;
 		}
+		binRecentCount.resize(numBins);
+		for (size_t i = 0; i < numBins; i++) {
+			binRecentCount[i] = 0;
+		}
+		for (size_t i = 0; i < chosenBins.size(); i++)
+			chosenBins.pop();
 	}
 	else
 		numBins = 1;
 }
-
 
 bool discardInput(float* inputs) {
 	if (NUM_INPUTS < 10)
@@ -2219,7 +2247,7 @@ int getLCType() {
 
 std::vector<float> getBinnedOutput(float output) {
 	std::vector<float> bins;
-	if (numBins == 0)
+	if (numBins == 0 || binEdges.size() == 0 || binEdges.size() != numBins - 1)
 		return bins;
 
 	bins.resize(numBins);
@@ -2455,26 +2483,33 @@ void generateTrainWeightBins() {
 }
 
 void loadBinEdges(std::string binEdgeFile) {
+	if (!useBinEdgeFile)
+		return;
 	binEdges.clear();
 	std::stringstream ss;
 	ss << datastring << binEdgeFile;
 	std::ifstream binfile(ss.str());
 	if (!binfile.is_open()) {
-		std::cout << "Couldn't load binEdge file " << ss.str() << std::endl;
-		throw new std::runtime_error("Couldn't load binEdge file");
+		std::cout << "Couldn't load binEdge file " << ss.str() << ", proceeding without binEdges." << std::endl;
+		return;
 	}
+	else
+		std::cout << "Loaded binEdge file " << ss.str() << std::endl;
+
 	float dum;
 	while (binfile >> dum)
 		binEdges.push_back(dum);
+
+	updateBins();
 }
 
 void fillTrainsetIndicesByBin() {
 	if (!trainOrderedByBin)
 		return;
 	trainsetIndicesByBin.clear();
-	trainsetIndicesByBin.resize(numBins);
+	trainsetIndicesByBin.resize(binEdges.size() + 1);
 	for (size_t i = 0; i < trainset.size(); i++) {
-		for (size_t j = 0; j < numBins; j++) {
+		for (size_t j = 0; j < binEdges.size() + 1; j++) {
 			if (trainset[i].correctbins[j] == BIN_POSITIVE_OUTPUT) {
 				trainsetIndicesByBin[j].push_back(i);
 				break;
@@ -2482,7 +2517,7 @@ void fillTrainsetIndicesByBin() {
 		}
 	}
 	nextBinIndices.clear();
-	nextBinIndices.resize(numBins);
+	nextBinIndices.resize(binEdges.size() + 1);
 }
 
 size_t getTrainsetIndexByBinFrequency() {

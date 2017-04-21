@@ -68,6 +68,7 @@ int main() {
 	loadParameters("../stockproj/pars.cfg");
 #endif
 
+	loadBinEdges(binEdgeFile);
 
 	if (evalOutputScaling) {
 		std::cout << "Would you like to recompute the output scaling factors based on this dataset? (default: 0) ";

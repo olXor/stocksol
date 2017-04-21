@@ -69,6 +69,7 @@ bool backupMinTestErrorSample = true;
 bool trainStockBAGSet = false;
 size_t trainBAGSubnetNum = 1;
 bool addBagTradeSuffix = false;
+bool appendBAGSubnetNum = true;
 
 size_t numRunsOnFullTrainset = 0;
 float fullTrainsetErrorGoal = 0.0f;
@@ -85,6 +86,8 @@ size_t resultSaveSampleNumStart = 0;
 size_t declaredTotalSamples = 0;
 
 float binOutAverageTrainReg = 0.0f;
+
+bool multTrainSetsPerCV = true;
 
 float annealingMultiplier() {
 	if (lastErrors.size() == 0 || annealingStartError == 0)
@@ -143,69 +146,45 @@ int main() {
 			loadParameters("pars.cfg");
 			loadLocalParameters();
 			if (trainStockBAGSet) {
+				std::stringstream suff1ss;
+				std::stringstream suff2ss;
 				if (addBagTradeSuffix) {
-					if (bagNum % 2 == 0) {
-						std::stringstream savess;
-						savess << savename << "long";
-						if (numTrainCrossValSets != 0)
-							savess << cv + 1 << "-";
-						savess << bagNum / 2 + 1;
-						savename = savess.str();
-						std::stringstream rantrainss;
-						rantrainss << randtrainstring << "long";
-						if (numTrainCrossValSets != 0)
-							rantrainss << cv + 1 << "-";
-						rantrainss << bagNum / 2 + 1;
-						randtrainstring = rantrainss.str();
-						std::stringstream testss;
-						testss << testfile << "long";
-						if (numTrainCrossValSets != 0)
-							testss << cv + 1 << "-";
-						testss << bagNum / 2 + 1;
-						testfile = testss.str();
-					}
-					else {
-						std::stringstream savess;
-						savess << savename << "short";
-						if (numTrainCrossValSets != 0)
-							savess << cv + 1 << "-";
-						savess << bagNum / 2 + 1;
-						savename = savess.str();
-						std::stringstream rantrainss;
-						rantrainss << randtrainstring << "short";
-						if (numTrainCrossValSets != 0)
-							rantrainss << cv + 1 << "-";
-						rantrainss << bagNum / 2 + 1;
-						randtrainstring = rantrainss.str();
-						std::stringstream testss;
-						testss << testfile << "short";
-						if (numTrainCrossValSets != 0)
-							testss << cv + 1 << "-";
-						testss << bagNum / 2 + 1;
-						testfile = testss.str();
-					}
+					if (bagNum % 2 == 0)
+						suff1ss << "long";
+					else
+						suff1ss << "short";
 				}
-				else {
-					std::stringstream savess;
-					savess << savename;
+				if (numTrainCrossValSets != 0)
+					suff1ss << cv + 1;
+				if (appendBAGSubnetNum) {
 					if (numTrainCrossValSets != 0)
-						savess << cv + 1 << "-";
-					savess << bagNum + 1;
-					savename = savess.str();
-					std::stringstream rantrainss;
-					rantrainss << randtrainstring;
-					if (numTrainCrossValSets != 0)
-						rantrainss << cv + 1 << "-";
-					rantrainss << bagNum + 1;
-					randtrainstring = rantrainss.str();
-					std::stringstream testss;
-					testss << testfile;
-					if (numTrainCrossValSets != 0)
-						testss << cv + 1 << "-";
-					testss << bagNum + 1;
-					testfile = testss.str();
+						suff2ss << "-";
+					if (addBagTradeSuffix)
+						suff2ss << bagNum / 2 + 1;
+					else
+						suff2ss << bagNum + 1;
 				}
+				std::stringstream suff;
+				if (multTrainSetsPerCV)
+					suff << suff1ss.str() << suff2ss.str();
+				else
+					suff << suff1ss.str();
+				std::stringstream savess;
+				savess << savename << suff1ss.str() << suff2ss.str();
+				savename = savess.str();
+				std::stringstream rantrainss;
+				rantrainss << randtrainstring << suff.str();
+				randtrainstring = rantrainss.str();
+				std::stringstream testss;
+				testss << testfile << suff.str();
+				testfile = testss.str();
+				std::stringstream binss;
+				binss << binEdgeFile << suff.str();
+				loadBinEdges(binss.str());
 				std::cout << std::endl << "Beginning run on " << savename << std::endl;
+			}
+			else {
+				loadBinEdges(binEdgeFile);
 			}
 			numRuns = 0;
 			trainSamples = initialTrainSamples;
@@ -348,9 +327,9 @@ int main() {
 						runPairedSim(pairedLayers, true, stepMultiplier(numRuns), trainSamples);
 					else {
 						if (binOutAverageTrainReg != 0)
-							runSim(layers, true, stepMultiplier(numRuns), trainSamples, false, NULL, false, &outAverages[0]);
+							runSim(layers, true, stepMultiplier(numRuns), trainSamples, false, NULL, false, &outAverages[0], NULL, false);
 						else
-							runSim(layers, true, stepMultiplier(numRuns), trainSamples);
+							runSim(layers, true, stepMultiplier(numRuns), trainSamples, false, NULL, false, NULL, NULL, false);
 					}
 					if (binOutAverageTrainReg != 0) {
 						for(size_t j=0;j<numBins;j++) {
@@ -538,6 +517,17 @@ void saveResults(size_t numRuns, float afterError, float* afterSecError, float t
 		resfile << " " << testSampleAfterError;
 
 	resfile << std::endl;
+
+	if (trainOrderedByBin) {
+		std::stringstream distname;
+		distname << savestring << savename << "dist";
+		std::ofstream distfile(distname.str().c_str(), std::ios_base::app);
+		distfile << numRuns << " ";
+		for (size_t i = 0; i < numBins; i++) {
+			distfile << testBinFreqs[i] << " ";
+		}
+		distfile << std::endl;
+	}
 }
 
 bool loadLastResults(float* afterError, float* afterSecError, float* testAfterError, float* testAfterSecError, float* testSampleAfterError) {
@@ -762,6 +752,10 @@ void loadLocalParameters() {
 			lss >> declaredTotalSamples;
 		else if (var == "binOutAverageTrainReg")
 			lss >> binOutAverageTrainReg;
+		else if (var == "appendBAGSubnetNum")
+			lss >> appendBAGSubnetNum;
+		else if (var == "multTrainSetsPerCV")
+			lss >> multTrainSetsPerCV;
 	}
 }
 

@@ -27,6 +27,8 @@ Project("{8BC9CEB8-8B4A-11D0-8D11-00A0C91BC942}") = "pulseprocess", "pulseproces
 EndProject
 Project("{8BC9CEB8-8B4A-11D0-8D11-00A0C91BC942}") = "distbin", "distbin\distbin.vcxproj", "{A4D00D33-B9DD-4AFB-9D25-57086DE613C5}"
 EndProject
+Project("{8BC9CEB8-8B4A-11D0-8D11-00A0C91BC942}") = "cputest", "cputest\cputest.vcxproj", "{6F9E65F8-BFF7-4D1A-8D79-D3D9CDA4AEF1}"
+EndProject
 Global
 	GlobalSection(SolutionConfigurationPlatforms) = preSolution
 		Debug|ARM = Debug|ARM
@@ -157,6 +159,14 @@ Global
 		{A4D00D33-B9DD-4AFB-9D25-57086DE613C5}.Release|Win32.Build.0 = Release|Win32
 		{A4D00D33-B9DD-4AFB-9D25-57086DE613C5}.Release|x64.ActiveCfg = Release|x64
 		{A4D00D33-B9DD-4AFB-9D25-57086DE613C5}.Release|x64.Build.0 = Release|x64
+		{6F9E65F8-BFF7-4D1A-8D79-D3D9CDA4AEF1}.Debug|ARM.ActiveCfg = Debug|Win32
+		{6F9E65F8-BFF7-4D1A-8D79-D3D9CDA4AEF1}.Debug|Win32.ActiveCfg = Debug|Win32
+		{6F9E65F8-BFF7-4D1A-8D79-D3D9CDA4AEF1}.Debug|Win32.Build.0 = Debug|Win32
+		{6F9E65F8-BFF7-4D1A-8D79-D3D9CDA4AEF1}.Debug|x64.ActiveCfg = Debug|Win32
+		{6F9E65F8-BFF7-4D1A-8D79-D3D9CDA4AEF1}.Release|ARM.ActiveCfg = Release|Win32
+		{6F9E65F8-BFF7-4D1A-8D79-D3D9CDA4AEF1}.Release|Win32.ActiveCfg = Release|Win32
+		{6F9E65F8-BFF7-4D1A-8D79-D3D9CDA4AEF1}.Release|Win32.Build.0 = Release|Win32
+		{6F9E65F8-BFF7-4D1A-8D79-D3D9CDA4AEF1}.Release|x64.ActiveCfg = Release|Win32
 	EndGlobalSection
 	GlobalSection(SolutionProperties) = preSolution
 		HideSolutionNode = FALSE
