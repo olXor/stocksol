@@ -89,6 +89,8 @@ float binOutAverageTrainReg = 0.0f;
 
 bool multTrainSetsPerCV = true;
 
+float fullTrainSetStepAdjustment = 0;
+
 float annealingMultiplier() {
 	if (lastErrors.size() == 0 || annealingStartError == 0)
 		return 1;
@@ -309,6 +311,8 @@ int main() {
 					std::cout << nIter << "+1 runs on " << numSamples << " sample pairs";
 				else
 					std::cout << nIter << "+1 runs on " << numSamples << " samples";
+				if (trainSamples >= declaredTotalSamples && fullTrainSetStepAdjustment > 0)
+					stepAdjustment = fullTrainSetStepAdjustment;
 				if (trainSamples >= stepAdjustmentNumStart && redoErrorThreshold > 0.0f) {
 					std::cout << "(SA: " << stepAdjustment << ")";
 				}
@@ -401,7 +405,7 @@ int main() {
 
 				if (trainSamples >= stepAdjustmentNumStart) {
 					if (redoErrorThreshold > 0.0f && prevPrimaryAfterError > 0.0f && primaryAfterError - prevPrimaryAfterError > redoErrorThreshold) {
-						std::cout << "Error increase was above threshold; redoing last run with lower stepfactor" << std::endl;
+						std::cout << "Error increase was above threshold; redoing last round" << std::endl;
 
 						if (pairedTraining)
 							loadPairedWeights(pairedLayers, savename);
@@ -756,6 +760,8 @@ void loadLocalParameters() {
 			lss >> appendBAGSubnetNum;
 		else if (var == "multTrainSetsPerCV")
 			lss >> multTrainSetsPerCV;
+		else if (var == "fullTrainSetStepAdjustment")
+			lss >> fullTrainSetStepAdjustment;
 	}
 }
 

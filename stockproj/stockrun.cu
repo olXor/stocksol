@@ -1953,7 +1953,7 @@ void updateBins() {
 		for (size_t i = 0; i < numBins; i++) {
 			binRecentCount[i] = 0;
 		}
-		for (size_t i = 0; i < chosenBins.size(); i++)
+		while (chosenBins.size() > 0)
 			chosenBins.pop();
 	}
 	else

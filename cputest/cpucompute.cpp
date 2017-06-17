@@ -132,7 +132,7 @@ void MaxPoolLayer::calc() {
 		for (size_t i = 0; i < numInputLocs / 2; i++) {
 			float a = inlayer[n + 2 * i*numInputNeurons];
 			float b = inlayer[n + (2 * i + 1)*numInputNeurons];
-		if (a > b)
+		if (fabs(a) > fabs(b))
 			outlayer[n + i*numInputNeurons] = a;
 		else
 			outlayer[n + i*numInputNeurons] = b;
