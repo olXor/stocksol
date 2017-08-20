@@ -8,6 +8,9 @@
 #define savestring "../stockproj/saveweights/"
 #endif
 
+float stockcombineBinPositiveOutput;
+float stockcombineBinNegativeOutput;
+
 std::vector<std::vector<std::vector<std::vector<float>>>> subnetResults;	//[dataset.size(), numCombineCVSets, 2*numCombineSubnets, numBins]
 
 bool testExplicitFile = false;
@@ -26,6 +29,8 @@ std::vector<std::vector<LayerCollection>> longsubnets;	//[numCombineCVSets, numC
 std::vector<std::vector<LayerCollection>> shortsubnets;	//[numCombineCVSets, numCombineSubnets]
 std::vector<std::vector<std::vector<float>>> scales;	//[numCombineCVSets, 2*numCombineSubnets, numBins]
 std::vector<std::vector<std::vector<float>>> means;
+std::vector<std::vector<float>> longBinEdges;			//[numCombineCVSets, numBins]
+std::vector<std::vector<float>> shortBinEdges;
 
 bool combineOutputScaling = true;
 
@@ -46,6 +51,8 @@ void generateSubnetResults();
 void evaluateMaxBinSelection(size_t bin, size_t numCVSetsToSelect, bool print);
 void evaluateMaxBinSelectionMergedSubnets(size_t bin, size_t numSubnetsToSelect, bool print);
 bool loadScales(std::vector<float>* means, std::vector<float>* scales, std::string fname);
+void stockcombineLoadBinEdges(std::vector<float>* edges, std::string binEdgeFile);
+void stockcombineGetBinnedOutput(float output, std::vector<float>* localBinEdges, std::vector<float>* bins);
 
 int main() {
 	srand((size_t)time(NULL));
@@ -66,6 +73,20 @@ int main() {
 
 	setStrings(datastring, savestring);
 
+	longBinEdges.resize(numCombineCVSets);
+	shortBinEdges.resize(numCombineCVSets);
+	
+	std::cout << "Loading bin edge files: ";
+	for (size_t i = 0; i < numCombineCVSets; i++) {
+		std::stringstream longbss;
+		longbss << binEdgeFile << "long" << i + 1;
+		stockcombineLoadBinEdges(&longBinEdges[i], longbss.str());
+		std::stringstream shortbss;
+		shortbss << binEdgeFile << "short" << i + 1;
+		stockcombineLoadBinEdges(&shortBinEdges[i], shortbss.str());
+	}
+	std::cout << "Done." << std::endl;
+
 	longsubnets.resize(numCombineCVSets);
 	shortsubnets.resize(numCombineCVSets);
 	for (size_t i = 0; i < numCombineCVSets; i++) {
@@ -74,14 +95,26 @@ int main() {
 	}
 	scales.resize(numCombineCVSets);
 	means.resize(numCombineCVSets);
+	numBins = longBinEdges[0].size() + 1;	//assume they're all the same size because I am very lazy.
 	for (size_t i = 0; i < numCombineCVSets; i++) {
 		scales[i].resize(2 * numCombineSubnets);
 		means[i].resize(2 * numCombineSubnets);
 		for (size_t j = 0; j < 2 * numCombineSubnets; j++) {
+			std::vector<float>* edges;
+			if (j < numCombineSubnets)
+				edges = &longBinEdges[i];
+			else
+				edges = &shortBinEdges[i];
+			if (edges->size() + 1 != numBins) {
+				std::cout << "All binEdges files must have the same number of bins" << std::endl;
+				throw std::runtime_error("All binEdges files must have the same number of bins");
+			}
 			scales[i][j].resize(numBins);
 			means[i][j].resize(numBins);
 		}
 	}
+	stockcombineBinPositiveOutput = BIN_POSITIVE_OUTPUT;
+	stockcombineBinNegativeOutput = -stockcombineBinPositiveOutput / (numBins - 1);
 
 	readData(combineTestFile, testBegin, testNumIOs);
 
@@ -244,6 +277,7 @@ void generateSubnetResults() {
 		}
 	}
 
+	std::vector<float> correctoutput;
 	for (size_t i = 0; i < dataset->size(); i++) {
 		for (size_t cv = 0; cv < numCombineCVSets; cv++) {
 			for (size_t sub = 0; sub < 2 * numCombineSubnets; sub++) {
@@ -258,7 +292,11 @@ void generateSubnetResults() {
 
 				calculate((*layers), mainStream);
 
-				checkCudaErrors(cudaMemcpyAsync(layers->correctoutput, &(*dataset)[i].correctbins[0], numBins*sizeof(float), cudaMemcpyHostToDevice, mainStream));
+				if (sub < numCombineSubnets)
+					stockcombineGetBinnedOutput((*dataset)[i].correctoutput, &longBinEdges[cv], &correctoutput);
+				else
+					stockcombineGetBinnedOutput((*dataset)[i].secondaryoutput, &shortBinEdges[cv], &correctoutput);
+				checkCudaErrors(cudaMemcpyAsync(layers->correctoutput, &correctoutput[0], numBins*sizeof(float), cudaMemcpyHostToDevice, mainStream));
 
 				calculateOutputError << <1, numBins, 0, mainStream >> >(layers->d_fixedMat[layers->numFixedNets - 1], layers->stepfactor, layers->correctoutput, d_output[cv][sub]);
 			}
@@ -323,6 +361,7 @@ void evaluateMaxBinSelection(size_t bin, size_t numCVSetsToSelect, bool print) {
 		if (numLongCVSelected >= numCVSetsToSelect) {
 			longProfit += (*dataset)[i].correctoutput;
 			numLongTrades++;
+			/*
 			size_t binPos = 0;
 			for (size_t j = 0; j < numBins; j++) {
 				if ((*dataset)[i].correctbins[j] == BIN_POSITIVE_OUTPUT) {
@@ -331,10 +370,12 @@ void evaluateMaxBinSelection(size_t bin, size_t numCVSetsToSelect, bool print) {
 				}
 			}
 			longDist[binPos]++;
+			*/
 		}
 		if (numShortCVSelected >= numCVSetsToSelect) {
 			shortProfit += (*dataset)[i].secondaryoutput;
 			numShortTrades++;
+			/*
 			size_t binPos = 0;
 			for (size_t j = 0; j < numBins; j++) {
 				if ((*dataset)[i].secondarybins[j] == BIN_POSITIVE_OUTPUT) {
@@ -343,12 +384,14 @@ void evaluateMaxBinSelection(size_t bin, size_t numCVSetsToSelect, bool print) {
 				}
 			}
 			shortDist[binPos]++;
+			*/
 		}
 	}
 
 	if (print) {
 		std::cout << "Bin #" << bin << " with " << numCVSetsToSelect << " CVs with " << combineLongNetsSelectPerCV << "/" << combineShortNetsSelectPerCV << " nets required. ";
 		std::cout << "Profits: L: " << longProfit << " (/" << numLongTrades << "=" << longProfit / numLongTrades << ") S: " << shortProfit << " (/" << numShortTrades << "=" << shortProfit / numShortTrades << ")" << " Total: " << longProfit + shortProfit << " (/" << numLongTrades + numShortTrades << "=" << (longProfit + shortProfit) / (numLongTrades + numShortTrades) << ")" << std::endl;
+		/*
 		std::cout << "Long Trade Distribution: ";
 		for (size_t i = 0; i < numBins; i++) {
 			std::cout << longDist[i] << " ";
@@ -360,6 +403,7 @@ void evaluateMaxBinSelection(size_t bin, size_t numCVSetsToSelect, bool print) {
 			std::cout << shortDist[i] << " ";
 		}
 		std::cout << std::endl;
+		*/
 	}
 }
 
@@ -400,6 +444,7 @@ void evaluateMaxBinSelectionMergedSubnets(size_t bin, size_t numSubnetsToSelect,
 		if (numLongNetsSelected >= numSubnetsToSelect) {
 			longProfit += (*dataset)[i].correctoutput;
 			numLongTrades++;
+			/*
 			size_t binPos = 0;
 			for (size_t j = 0; j < numBins; j++) {
 				if ((*dataset)[i].correctbins[j] == BIN_POSITIVE_OUTPUT) {
@@ -408,10 +453,12 @@ void evaluateMaxBinSelectionMergedSubnets(size_t bin, size_t numSubnetsToSelect,
 				}
 			}
 			longDist[binPos]++;
+			*/
 		}
 		if (numShortNetsSelected >= numSubnetsToSelect) {
 			shortProfit += (*dataset)[i].secondaryoutput;
 			numShortTrades++;
+			/*
 			size_t binPos = 0;
 			for (size_t j = 0; j < numBins; j++) {
 				if ((*dataset)[i].secondarybins[j] == BIN_POSITIVE_OUTPUT) {
@@ -420,12 +467,14 @@ void evaluateMaxBinSelectionMergedSubnets(size_t bin, size_t numSubnetsToSelect,
 				}
 			}
 			shortDist[binPos]++;
+			*/
 		}
 	}
 
 	if (print) {
 		std::cout << "Bin #" << bin << " with " << numSubnetsToSelect << " nets required. ";
 		std::cout << "Profits: L: " << longProfit << " (/" << numLongTrades << "=" << longProfit / numLongTrades << ") S: " << shortProfit << " (/" << numShortTrades << "=" << shortProfit / numShortTrades << ")" << " Total: " << longProfit + shortProfit << " (/" << numLongTrades + numShortTrades << "=" << (longProfit + shortProfit) / (numLongTrades + numShortTrades) << ")" << std::endl;
+		/*
 		std::cout << "Long Trade Distribution: ";
 		for (size_t i = 0; i < numBins; i++) {
 			std::cout << longDist[i] << " ";
@@ -437,6 +486,7 @@ void evaluateMaxBinSelectionMergedSubnets(size_t bin, size_t numSubnetsToSelect,
 			std::cout << shortDist[i] << " ";
 		}
 		std::cout << std::endl;
+		*/
 	}
 }
 
@@ -500,4 +550,45 @@ void loadLocalParameters(std::string parName) {
 		else if (var == "combineMergeSubnetsByCV")
 			lss >> combineMergeSubnetsByCV;
 	}
+}
+
+void stockcombineLoadBinEdges(std::vector<float>* edges, std::string binEdgeFile) {
+	edges->clear();
+	std::stringstream ss;
+	ss << datastring << binEdgeFile;
+	std::ifstream binfile(ss.str());
+	if (!binfile.is_open()) {
+		std::cout << "Couldn't load binEdge file " << ss.str() << ", proceeding without binEdges." << std::endl;
+		return;
+	}
+	else
+		std::cout << "Loaded binEdge file " << ss.str() << std::endl;
+
+	float dum;
+	while (binfile >> dum)
+		edges->push_back(dum);
+}
+
+void stockcombineGetBinnedOutput(float output, std::vector<float>* localBinEdges, std::vector<float>* bins) {
+	if (numBins == 0 || localBinEdges->size() == 0 || localBinEdges->size() != numBins - 1) {
+		throw std::runtime_error("Invalid numBins or binEdges");
+	}
+
+	bins->resize(numBins);
+	
+	for (size_t i = 1; i < numBins-1; i++) {
+		if (output >= (*localBinEdges)[i-1] && output < (*localBinEdges)[i])
+			(*bins)[i] = stockcombineBinPositiveOutput;
+		else
+			(*bins)[i] = stockcombineBinNegativeOutput;
+	}
+	if (output < (*localBinEdges)[0])
+		(*bins)[0] = stockcombineBinPositiveOutput;
+	else
+		(*bins)[0] = stockcombineBinNegativeOutput;
+
+	if (numBins >= 2 && output > (*localBinEdges)[numBins - 2])
+		(*bins)[numBins - 1] = stockcombineBinPositiveOutput;
+	else
+		(*bins)[numBins - 1] = stockcombineBinNegativeOutput;
 }

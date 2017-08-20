@@ -15,7 +15,15 @@ float transferFunction(float in, size_t type) {
 			return 0.0f;
 		return 1.0f / (1.0f + exp(-in / TRANSFER_WIDTH));
 	}
-	else if (type == TRANSFER_TYPE_LINEAR)
+	else if (type == TRANSFER_TYPE_TANH) {
+		if (in / TRANSFER_WIDTH > TRANSFER_FUNCTION_LIMIT)
+			return 1.0f;
+		if (in / TRANSFER_WIDTH < -TRANSFER_FUNCTION_LIMIT)
+			return -1.0f;
+		float expo = exp(in / TRANSFER_WIDTH);
+		return (expo - 1) / (expo + 1);
+	}
+	else if (type == TRANSFER_TYPE_IDENTITY)
 		return in;
 	return 99999999.0f;
 }
@@ -141,7 +149,7 @@ void MaxPoolLayer::calc() {
 
 void ConvolutionLayer::loadWeights(std::ifstream* infile) {
 	std::string dum;
-	(*infile) >> dum >> dum >> dum;	//"Convolution Layer #:"
+	(*infile) >> dum;	//name
 
 	for (size_t i = 0; i < numOutputNeurons; i++) {
 		(*infile) >> outThresholds[i] >> dum; //" | "
@@ -159,7 +167,7 @@ void MaxPoolLayer::loadWeights(std::ifstream* infile) {
 
 void FixedLayer::loadWeights(std::ifstream* infile) {
 	std::string dum;
-	(*infile) >> dum >> dum >> dum; //"Fixed Layer #:"
+	(*infile) >> dum;	//name
 
 	for (size_t i = 0; i < numOutputNeurons; i++) {
 		(*infile) >> outThresholds[i] >> dum; //" | "
@@ -167,4 +175,32 @@ void FixedLayer::loadWeights(std::ifstream* infile) {
 			(*infile >> weights[j + i*numInputNeurons]);
 		}
 	}
+}
+
+std::vector<size_t> Layer::getOutputSymmetryDimensions() {
+	std::vector<size_t> dim(1);
+	dim[0] = numOutputElements;
+	return dim;
+}
+
+std::vector<size_t> ConvolutionLayer::getOutputSymmetryDimensions() {
+	std::vector<size_t> dim;
+	if (numOutputLocs > 1)
+		dim.push_back(numOutputLocs);
+	dim.push_back(numOutputNeurons);
+
+	return dim;
+}
+
+std::vector<size_t> MaxPoolLayer::getOutputSymmetryDimensions() {
+	std::vector<size_t> dim;
+	if (numInputLocs/2 > 1)
+		dim.push_back(numInputLocs/2);
+	dim.push_back(numInputNeurons);
+
+	return dim;
+}
+
+void Layer::changeTransferType(size_t newType) {
+	transferType = newType;
 }

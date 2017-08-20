@@ -6,10 +6,10 @@
 #include <fstream>
 #include <list>
 
-#define savestring "saveweights/"
+#define savestring "weights/"
 #define datastring "rawdata/"
 
-#define NUM_INPUTS 136
+size_t NUM_INPUTS;
 
 //super quick and dirty cpu tester
 
@@ -19,13 +19,14 @@ size_t numFixedHiddenNeurons = 1024;
 
 std::string savename;
 
-void loadParameters(std::string parName);
-void createWeightLayers();
+void loadArchitecture(std::string archfname);
 bool loadWeights(std::vector<Layer*> layers, std::string fname);
+void throwError(std::string err);
 
 std::string datafname = "trainset";
 std::string resultfname = "calcresults";
 std::string weightfname = "weights";
+std::string weightfolder;
 size_t intervalSize = 1000;
 std::vector<size_t> columns;
 size_t begin = 1;
@@ -54,8 +55,6 @@ void debugSaveInternalResults();
 #endif
 
 int main() {
-	loadParameters("pars.cfg");
-
 	columns.push_back(1);
 	columns.push_back(2);
 	columns.push_back(3);
@@ -109,6 +108,11 @@ int main() {
 	if (!line.empty()) std::stringstream(line) >> resultfname;
 	std::cout << std::endl;
 
+	std::cout << "Enter the name of the weights folder: ";
+	std::getline(std::cin, line);
+	if (!line.empty()) std::stringstream(line) >> weightfolder;
+	std::cout << std::endl;
+
 	std::cout << "Enter the name of the weights file (default: \"weights\"): ";
 	std::getline(std::cin, line);
 	if (!line.empty()) std::stringstream(line) >> weightfname;
@@ -143,8 +147,8 @@ int main() {
 	else
 		keepExtraData = false;
 
-	createWeightLayers();
-	if (!loadWeights(weightlayers, weightfname)) {
+	loadArchitecture(savestring + weightfolder + "/archWeights");
+	if (!loadWeights(weightlayers, weightfolder + "/" + weightfname)) {
 		std::cout << "Couldn't open weights file" << std::endl;
 		system("pause");
 		return 0;
@@ -215,6 +219,7 @@ int main() {
 	system("pause");
 }
 
+/*
 void createWeightLayers() {
 	weightlayers.push_back((Layer*)new ConvolutionLayer(1, 136, NUM_NEURONS, 128, 9, TRANSFER_TYPE_RECTIFIER));
 	weightlayers.push_back((Layer*)new MaxPoolLayer(NUM_NEURONS, 128));
@@ -233,6 +238,7 @@ void createWeightLayers() {
 		weightlayers[i]->link(weightlayers[i - 1]);
 	}
 }
+*/
 
 bool loadWeights(std::vector<Layer*> layers, std::string fname) {
 	std::stringstream fss;
@@ -250,30 +256,6 @@ bool loadWeights(std::vector<Layer*> layers, std::string fname) {
 	}
 
 	return true;
-}
-
-void loadParameters(std::string parName) {
-	std::ifstream infile(parName.c_str());
-	std::string line;
-	while (getline(infile, line)) {
-		std::stringstream lss(line);
-		std::string var;
-		lss >> var;
-		if (var == "NUM_NEURONS")
-			lss >> NUM_NEURONS;
-		else if (var == "savename")
-			lss >> savename;
-		else if (var == "numFixedHiddenNeurons")
-			lss >> numFixedHiddenNeurons;
-		else if (var == "NUM_INPUTS") {
-			size_t numInputs;
-			lss >> numInputs;
-			if (numInputs != 136) {
-				std::cout << "Currently only supports NUM_INPUTS=136" << std::endl;
-				throw new std::runtime_error("");
-			}
-		}
-	}
 }
 
 bool readIntervalData(std::ifstream* datafile, std::vector<std::vector<std::vector<float>>>* intervalData, size_t* iBegin, size_t* iEnd) {
@@ -459,4 +441,150 @@ float stdev(std::vector<float> in, float mean) {
 	stdev /= in.size();
 	stdev = sqrt(stdev);
 	return stdev;
+}
+
+void throwError(std::string err) {
+	std::cout << err << std::endl;
+	throw std::runtime_error(err);
+}
+
+void loadArchitecture(std::string archfname) {
+	std::ifstream archfile(archfname);
+
+	if (!archfile.is_open())
+		throwError("Couldn't open architecture file");
+
+	std::string line;
+
+	while (std::getline(archfile, line)) {
+		std::stringstream lss(line);
+
+		std::string layerType;
+		lss >> layerType;
+
+		Layer* newLayer = NULL;
+
+		if (layerType == "Entry") {
+			std::string name;
+			size_t nInputs;
+			if (!(lss >> name >> nInputs))
+				throwError("Invalid parameters for Entry layer " + name);
+
+			newLayer = NULL;
+			NUM_INPUTS = nInputs;
+		}
+		else if (layerType == "Fixed") {
+			std::string name;
+			size_t connection;
+			size_t nInputs;
+			size_t nOutputs;
+			if (!(lss >> name >> connection >> nOutputs))
+				throwError("Invalid parameters for Fixed layer " + name);
+
+			if (connection == 1)
+				nInputs = NUM_INPUTS;
+			else if (connection - 2 < weightlayers.size())
+				nInputs = weightlayers[connection - 2]->numOutputElements;
+			else
+				throwError("Invalid connection for layer " + name);
+
+			newLayer = new FixedLayer(nInputs, nOutputs, TRANSFER_TYPE_RECTIFIER);
+			weightlayers.push_back(newLayer);
+			if (connection > 1)
+				newLayer->link(weightlayers[connection - 2]);
+		}
+		else if (layerType == "Convolution") {
+			std::string name;
+			size_t con;
+			size_t inLocs;
+			size_t inNeurons;
+			size_t outLocs;
+			size_t outNeurons;
+			size_t convSize;
+			size_t stride;
+			if (!(lss >> name >> con >> outLocs >> outNeurons >> convSize >> stride))
+				throwError("Invalid parameters for convolution layer " + name);
+
+			if (con == 1) {
+				inNeurons = 1;
+				inLocs = NUM_INPUTS;
+			}
+			else if (con - 2 < weightlayers.size()) {
+				std::vector<size_t> linkSymmetryDimensions = weightlayers[con - 2]->getOutputSymmetryDimensions();
+				if (linkSymmetryDimensions.size() == 0 || linkSymmetryDimensions.size() > 2)
+					throwError("Invalid linkSymmetryDimensions for ConvolutionLayer " + name + " input");
+				inLocs = linkSymmetryDimensions[0];
+				if (linkSymmetryDimensions.size() == 2)
+					inNeurons = linkSymmetryDimensions[1];
+				else
+					inNeurons = 1;
+			}
+			else
+				throwError("Invalid connection for layer " + name);
+
+			newLayer = new ConvolutionLayer(inNeurons, inLocs, outNeurons, outLocs, convSize, TRANSFER_TYPE_RECTIFIER);
+			weightlayers.push_back(newLayer);
+			if (con > 1)
+				newLayer->link(weightlayers[con - 2]);
+		}
+		else if (layerType == "MaxPool") {
+			std::string name;
+			size_t con;
+			size_t outLocs;
+			size_t outNeurons;
+			if (!(lss >> name >> con))
+				throwError("Invalid parameters for MaxPool layer " + name);
+
+			if (con - 2 < weightlayers.size()) {
+				std::vector<size_t> linkSymmetryDimensions = weightlayers[con - 2]->getOutputSymmetryDimensions();
+				if (linkSymmetryDimensions.size() == 0 || linkSymmetryDimensions.size() > 2)
+					throwError("Invalid linkSymmetryDimensions for MaxPoolLayer " + name + " input");
+				outLocs = linkSymmetryDimensions[0] / 2;
+				if (linkSymmetryDimensions.size() == 2)
+					outNeurons = linkSymmetryDimensions[1];
+				else
+					outNeurons = 1;
+			}
+			else
+				throwError("Invalid connection for layer " + name);
+
+			newLayer = new MaxPoolLayer(outNeurons, 2 * outLocs);
+			weightlayers.push_back(newLayer);
+			if (con > 1)
+				newLayer->link(weightlayers[con - 2]);
+		}
+		else
+			throwError("Unrecognized layer type: " + layerType);
+
+		std::string flag;
+		while (lss >> flag) {
+			if (newLayer == NULL)
+				continue;
+			if (flag == "TransferType") {
+				std::string type;
+				lss >> type;
+				if (type == "Identity")
+					newLayer->changeTransferType(TRANSFER_TYPE_IDENTITY);
+				else if (type == "Rectifier")
+					newLayer->changeTransferType(TRANSFER_TYPE_RECTIFIER);
+				else if (type == "Sigmoid")
+					newLayer->changeTransferType(TRANSFER_TYPE_SIGMOID);
+				else if (type == "TANH")
+					newLayer->changeTransferType(TRANSFER_TYPE_TANH);
+			}
+			else if (flag == "CustomDeviceChainEndpoint") {
+			}
+			else if (flag == "InternalChainEndpoint") {
+				size_t correctLayer;
+				size_t correctOffset;
+				lss >> correctLayer >> correctOffset;
+			}
+			else if (flag == "Dropout") {
+				if (layerType != "Fixed")
+					throwError("Dropout only allowed for the following layer types: Fixed");
+				float dropFactor = 1.0f;
+				lss >> dropFactor;
+			}
+		}
+	}
 }

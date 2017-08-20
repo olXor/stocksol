@@ -7,7 +7,8 @@
 
 #define TRANSFER_TYPE_RECTIFIER 1
 #define TRANSFER_TYPE_SIGMOID 2
-#define TRANSFER_TYPE_LINEAR 3
+#define TRANSFER_TYPE_IDENTITY 3
+#define TRANSFER_TYPE_TANH 4
 
 #define TRANSFER_FUNCTION_LIMIT 50.0f
 #define TRANSFER_WIDTH 1.0f
@@ -24,9 +25,12 @@ public:
 	float* outlayer;
 	void Layer::link(Layer* l2);
 	virtual void loadWeights(std::ifstream* infile) = 0;
+	virtual std::vector<size_t> getOutputSymmetryDimensions();
+	size_t transferType;
+	void changeTransferType(size_t newType);
 };
 
-class ConvolutionLayer : Layer {
+class ConvolutionLayer : public Layer {
 protected:
 	float* weights;
 	float* outThresholds;
@@ -37,16 +41,16 @@ protected:
 	size_t numOutputLocs;
 	size_t numOutputNeurons;
 
-	size_t transferType;
 
 public:
 	void calc();
 	ConvolutionLayer(size_t numInputNeurons, size_t numInputLocs, size_t numOutputNeurons, size_t numOutputLocs, size_t convSize, size_t transType);
 	~ConvolutionLayer();
 	void loadWeights(std::ifstream* infile);
+	std::vector<size_t> getOutputSymmetryDimensions();
 };
 
-class FixedLayer : Layer {
+class FixedLayer : public Layer {
 protected:
 	float* weights;
 	float* outThresholds;
@@ -54,7 +58,6 @@ protected:
 	size_t numInputNeurons;
 	size_t numOutputNeurons;
 
-	size_t transferType;
 public:
 	void calc();
 	FixedLayer(size_t nInputNeurons, size_t nOutputNeurons, size_t transType);
@@ -62,7 +65,7 @@ public:
 	void loadWeights(std::ifstream* infile);
 };
 
-class MaxPoolLayer : Layer {
+class MaxPoolLayer : public Layer {
 protected:
 	size_t numInputNeurons;
 	size_t numInputLocs;
@@ -71,4 +74,5 @@ public:
 	MaxPoolLayer(size_t nInputNeurons, size_t nInputLocs);
 	~MaxPoolLayer();
 	void loadWeights(std::ifstream* infile);
+	std::vector<size_t> getOutputSymmetryDimensions();
 };

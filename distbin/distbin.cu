@@ -43,20 +43,20 @@ int main() {
 		std::cout << "Sorting: ";
 		markTime();
 		std::vector<float> values;
-		for (size_t i = 0; i < getTrainSet()->size(); i++) {
-			values.push_back((*getTrainSet())[i].correctoutput);
+		for (size_t j = 0; j < getTrainSet()->size(); j++) {
+			values.push_back((*getTrainSet())[j].correctoutput);
 		}
 		quicksort(&values, 0, values.size() - 1);
 		std::cout << " Done. (" << getTimeSinceMark() << " s)" << std::endl;
 
 		std::vector<float> binEdges(binNum - 1);
-		for (size_t i = 0; i < binNum - 1; i++) {
-			binEdges[i] = values[(i + 1)*values.size() / binNum];
+		for (size_t j = 0; j < binNum - 1; j++) {
+			binEdges[j] = values[(j + 1)*values.size() / binNum];
 		}
 
 		std::cout << "Bin Edges: ";
-		for (size_t i = 0; i < binNum - 1; i++)
-			std::cout << binEdges[i] << " ";
+		for (size_t j = 0; j < binNum - 1; j++)
+			std::cout << binEdges[j] << " ";
 		std::cout << std::endl;
 
 		std::stringstream outss;
@@ -64,7 +64,7 @@ int main() {
 		if (numSets != 0)
 			outss << i + 1;
 		std::ofstream binout(outss.str());
-		for (size_t j = 0; j < binNum - 1; i++)
+		for (size_t j = 0; j < binNum - 1; j++)
 			binout << binEdges[j] << " ";
 		binout << std::endl;
 	}
