@@ -45,7 +45,7 @@ void ConvolutionLayer::calc() {
 			float res = 0;
 			for (size_t iN = 0; iN < numInputNeurons; iN++) {
 				for (size_t c = 0; c < convSize; c++) {
-					res += weights[iN + oN*numInputNeurons + c*numInputNeurons*numOutputNeurons] * inlayer[iN + (oL + c)*numInputNeurons];
+					res += weights[iN + oN*numInputNeurons + c*numInputNeurons*numOutputNeurons] * inlayer[iN + (stride*oL + c)*numInputNeurons];
 				}
 			}
 			res -= outThresholds[oN];
@@ -54,9 +54,22 @@ void ConvolutionLayer::calc() {
 	}
 }
 
-ConvolutionLayer::ConvolutionLayer(size_t nInputNeurons, size_t nInputLocs, size_t nOutputNeurons, size_t nOutputLocs, size_t cSize, size_t transType) {
-	if (nInputLocs != nOutputLocs + cSize - 1) {
-		std::cout << "Invalid ConvolutionLayer parameter: nInputLocs: " << nInputLocs << " nOutputLocs: " << nOutputLocs << " convSize: " << cSize << std::endl;
+void BatchNormLayer::calc() {
+	for (size_t n = 0; n < numNeurons; n++) {
+		for (size_t x = 0; x < numLocsX; x++) {
+			for (size_t y = 0; y < numLocsY; y++) {
+				size_t pos = n + x*numNeurons + y*numNeurons*numLocsX;
+				outlayer[pos] = ((inlayer[pos] - batchMeans[n]) / batchStdevs[n])*stdevAdjusts[n] - thresholds[n];
+				outlayer[pos] = transferFunction(outlayer[pos], transferType);
+			}
+		}
+	}
+}
+
+ConvolutionLayer::ConvolutionLayer(size_t nInputNeurons, size_t nInputLocs, size_t nOutputNeurons, size_t nOutputLocs, size_t cSize, size_t newStride, size_t transType) {
+	if (nInputLocs != newStride*nOutputLocs + cSize - newStride) {
+		std::cout << "Invalid ConvolutionLayer parameter: nInputLocs: " << nInputLocs << " nOutputLocs: " << nOutputLocs << " convSize: " << cSize << " stride: " << newStride << std::endl;
+		system("pause");
 		throw new std::runtime_error("Invalid convolution parameters");
 	}
 
@@ -65,6 +78,7 @@ ConvolutionLayer::ConvolutionLayer(size_t nInputNeurons, size_t nInputLocs, size
 	numOutputNeurons = nOutputNeurons;
 	numOutputLocs = nOutputLocs;
 	convSize = cSize;
+	stride = newStride;
 
 	inlayer = new float[numInputNeurons*numInputLocs];
 	outlayer = new float[numOutputNeurons*numOutputLocs];
@@ -135,6 +149,33 @@ MaxPoolLayer::~MaxPoolLayer() {
 	delete[] outlayer;
 }
 
+BatchNormLayer::BatchNormLayer(size_t nNeurons, size_t nLocsX, size_t nLocsY, size_t transType) {
+	numNeurons = nNeurons;
+	numLocsX = nLocsX;
+	numLocsY = nLocsY;
+
+	stdevAdjusts = new float[numNeurons];
+	thresholds = new float[numNeurons];
+	batchStdevs = new float[numNeurons];
+	batchMeans = new float[numNeurons];
+
+	numInputElements = numNeurons*numLocsX*numLocsY;
+	numOutputElements = numNeurons*numLocsX*numLocsY;
+	inlayer = new float[numInputElements];
+	outlayer = new float[numOutputElements];
+
+	transferType = transType;
+}
+
+BatchNormLayer::~BatchNormLayer() {
+	delete[] stdevAdjusts;
+	delete[] thresholds;
+	delete[] batchStdevs;
+	delete[] batchMeans;
+	delete[] inlayer;
+	delete[] outlayer;
+}
+
 void MaxPoolLayer::calc() {
 	for (size_t n = 0; n < numInputNeurons; n++)
 		for (size_t i = 0; i < numInputLocs / 2; i++) {
@@ -147,33 +188,47 @@ void MaxPoolLayer::calc() {
 	}
 }
 
-void ConvolutionLayer::loadWeights(std::ifstream* infile) {
-	std::string dum;
-	(*infile) >> dum;	//name
-
+void ConvolutionLayer::loadWeights(FILE* infile) {
 	for (size_t i = 0; i < numOutputNeurons; i++) {
-		(*infile) >> outThresholds[i] >> dum; //" | "
+		fread(&outThresholds[i], sizeof(float), 1, infile);
 		for (size_t j = 0; j < numInputNeurons; j++) {
 			for (size_t k = 0; k < convSize; k++) {
-				(*infile) >> weights[j + i*numInputNeurons + k*numInputNeurons*numOutputNeurons];
+				fread(&weights[j + i*numInputNeurons + k*numInputNeurons*numOutputNeurons], sizeof(float), 1, infile);
 			}
 		}
 	}
 }
 
-void MaxPoolLayer::loadWeights(std::ifstream* infile) {
+void MaxPoolLayer::loadWeights(FILE* infile) {
 	return;
 }
 
-void FixedLayer::loadWeights(std::ifstream* infile) {
-	std::string dum;
-	(*infile) >> dum;	//name
-
+void FixedLayer::loadWeights(FILE* infile) {
 	for (size_t i = 0; i < numOutputNeurons; i++) {
-		(*infile) >> outThresholds[i] >> dum; //" | "
+		fread(&outThresholds[i], sizeof(float), 1, infile);
 		for (size_t j = 0; j < numInputNeurons; j++) {
-			(*infile >> weights[j + i*numInputNeurons]);
+			fread(&weights[j + i*numInputNeurons], sizeof(float), 1, infile);
 		}
+	}
+}
+
+void BatchNormLayer::loadWeights(FILE* infile) {
+	for (size_t i = 0; i < numNeurons; i++) {
+		fread(&stdevAdjusts[i], sizeof(float), 1, infile);
+	}
+	for (size_t i = 0; i < numNeurons; i++) {
+		fread(&thresholds[i], sizeof(float), 1, infile);
+	}
+}
+
+void Layer::loadBatchNormData(FILE* infile) {}
+
+void BatchNormLayer::loadBatchNormData(FILE* infile) {
+	for (size_t i = 0; i < numNeurons; i++) {
+		fread(&batchStdevs[i], sizeof(float), 1, infile);
+	}
+	for (size_t i = 0; i < numNeurons; i++) {
+		fread(&batchMeans[i], sizeof(float), 1, infile);
 	}
 }
 
@@ -198,6 +253,16 @@ std::vector<size_t> MaxPoolLayer::getOutputSymmetryDimensions() {
 		dim.push_back(numInputLocs/2);
 	dim.push_back(numInputNeurons);
 
+	return dim;
+}
+
+std::vector<size_t> BatchNormLayer::getOutputSymmetryDimensions() {
+	std::vector<size_t> dim;
+	if (numLocsX > 1 || numLocsY > 1)
+		dim.push_back(numLocsX);
+	if (numLocsY > 1)
+		dim.push_back(numLocsY);
+	dim.push_back(numNeurons);
 	return dim;
 }
 

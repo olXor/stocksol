@@ -44,6 +44,7 @@
       <WarningLevel>Level3</WarningLevel>
       <Optimization>Disabled</Optimization>
       <SDLCheck>true</SDLCheck>
+      <PreprocessorDefinitions>_MBCS;%(PreprocessorDefinitions);_CRT_SECURE_NO_WARNINGS</PreprocessorDefinitions>
     </ClCompile>
     <Link>
       <GenerateDebugInformation>true</GenerateDebugInformation>
@@ -57,6 +58,7 @@
       <FunctionLevelLinking>true</FunctionLevelLinking>
       <IntrinsicFunctions>true</IntrinsicFunctions>
       <SDLCheck>true</SDLCheck>
+      <PreprocessorDefinitions>_MBCS;%(PreprocessorDefinitions);_CRT_SECURE_NO_WARNINGS</PreprocessorDefinitions>
     </ClCompile>
     <Link>
       <GenerateDebugInformation>true</GenerateDebugInformation>
@@ -67,10 +69,16 @@
   </ItemDefinitionGroup>
   <ItemGroup>
     <ClCompile Include="cpucompute.cpp" />
+    <ClCompile Include="cpucommon.cpp" />
+    <ClCompile Include="cpufeature.cpp" />
     <ClCompile Include="cputest.cpp" />
+    <ClCompile Include="cpuwindow.cpp" />
   </ItemGroup>
   <ItemGroup>
     <ClInclude Include="cpucompute.h" />
+    <ClInclude Include="cpucommon.h" />
+    <ClInclude Include="cpufeature.h" />
+    <ClInclude Include="cpuwindow.h" />
   </ItemGroup>
   <Import Project="$(VCTargetsPath)\Microsoft.Cpp.targets" />
   <ImportGroup Label="ExtensionTargets">

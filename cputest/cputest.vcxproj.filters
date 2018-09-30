@@ -21,9 +21,27 @@
     <ClCompile Include="cpucompute.cpp">
       <Filter>Source Files</Filter>
     </ClCompile>
+    <ClCompile Include="cpuwindow.cpp">
+      <Filter>Source Files</Filter>
+    </ClCompile>
+    <ClCompile Include="cpucommon.cpp">
+      <Filter>Source Files</Filter>
+    </ClCompile>
+    <ClCompile Include="cpufeature.cpp">
+      <Filter>Source Files</Filter>
+    </ClCompile>
   </ItemGroup>
   <ItemGroup>
     <ClInclude Include="cpucompute.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
+    <ClInclude Include="cpuwindow.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
+    <ClInclude Include="cpucommon.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
+    <ClInclude Include="cpufeature.h">
       <Filter>Header Files</Filter>
     </ClInclude>
   </ItemGroup>

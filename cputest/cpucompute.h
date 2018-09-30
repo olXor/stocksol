@@ -13,9 +13,8 @@
 #define TRANSFER_FUNCTION_LIMIT 50.0f
 #define TRANSFER_WIDTH 1.0f
 
-#define NEGATIVE_TRANSFER_FACTOR 0.1f
+#define NEGATIVE_TRANSFER_FACTOR 0.01f
 
-//rofl this class structure
 class Layer {
 public:
 	size_t numInputElements;
@@ -24,7 +23,8 @@ public:
 	float* inlayer;
 	float* outlayer;
 	void Layer::link(Layer* l2);
-	virtual void loadWeights(std::ifstream* infile) = 0;
+	virtual void loadWeights(FILE* infile) = 0;
+	virtual void loadBatchNormData(FILE* infile);
 	virtual std::vector<size_t> getOutputSymmetryDimensions();
 	size_t transferType;
 	void changeTransferType(size_t newType);
@@ -40,13 +40,13 @@ protected:
 	size_t convSize;
 	size_t numOutputLocs;
 	size_t numOutputNeurons;
-
+	size_t stride;
 
 public:
 	void calc();
-	ConvolutionLayer(size_t numInputNeurons, size_t numInputLocs, size_t numOutputNeurons, size_t numOutputLocs, size_t convSize, size_t transType);
+	ConvolutionLayer(size_t numInputNeurons, size_t numInputLocs, size_t numOutputNeurons, size_t numOutputLocs, size_t convSize, size_t newStride, size_t transType);
 	~ConvolutionLayer();
-	void loadWeights(std::ifstream* infile);
+	void loadWeights(FILE* infile);
 	std::vector<size_t> getOutputSymmetryDimensions();
 };
 
@@ -62,17 +62,38 @@ public:
 	void calc();
 	FixedLayer(size_t nInputNeurons, size_t nOutputNeurons, size_t transType);
 	~FixedLayer();
-	void loadWeights(std::ifstream* infile);
+	void loadWeights(FILE* infile);
 };
 
 class MaxPoolLayer : public Layer {
 protected:
 	size_t numInputNeurons;
 	size_t numInputLocs;
+
 public:
 	void calc();
 	MaxPoolLayer(size_t nInputNeurons, size_t nInputLocs);
 	~MaxPoolLayer();
-	void loadWeights(std::ifstream* infile);
+	void loadWeights(FILE* infile);
+	std::vector<size_t> getOutputSymmetryDimensions();
+};
+
+class BatchNormLayer : public Layer {
+protected:
+	float* stdevAdjusts;
+	float* thresholds;
+	float* batchStdevs;
+	float* batchMeans;
+
+	size_t numNeurons;
+	size_t numLocsX;
+	size_t numLocsY;
+
+public:
+	void calc();
+	BatchNormLayer(size_t nNeurons, size_t nLocsX, size_t nLocsY, size_t transType);
+	~BatchNormLayer();
+	void loadWeights(FILE* infile);
+	void loadBatchNormData(FILE* infile);
 	std::vector<size_t> getOutputSymmetryDimensions();
 };
