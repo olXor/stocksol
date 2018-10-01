@@ -13,4 +13,5 @@
 #define CONV_PEAK_FEATURES_INCLUDE_FIRST_DERIV false
 #define CONV_PEAK_FEATURES_INCLUDE_SECOND_DERIV false
 
-size_t createSecondaryFeatures(float* inputs, float* peaks, std::vector<float>* secondaryFeatures);
+size_t createSecondaryFeatures(float* inputs, float* peaks, std::vector<float>* secondaryFeatures, std::vector<float>* featureMeans, std::vector<float>* featureStdevs);
+bool loadFeatureNorms(std::string fname, std::vector<float>* featureMeans, std::vector<float>* featureStdevs);

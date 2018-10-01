@@ -2,7 +2,7 @@
 
 //this method is a bit over-complete; only the features with the hard-coded CONV_PEAK_FEATURES_INCLUDE flags set are used
 //assumes NUM_INPUTS point input.
-size_t createSecondaryFeatures(float* inputs, float* peaks, std::vector<float>* secondaryFeatures) {
+size_t createSecondaryFeatures(float* inputs, float* peaks, std::vector<float>* secondaryFeatures, std::vector<float>* featureMeans, std::vector<float>* featureStdevs) {
 	//first normalize by standard devation
 	float minInput = 9999;
 	float maxInput = -9999;
@@ -219,5 +219,37 @@ size_t createSecondaryFeatures(float* inputs, float* peaks, std::vector<float>* 
 		}
 	}
 
+	//feature normalization
+	for (size_t f = 0; f < numFeatures; f++) {
+		if (f == 0 && CONV_PEAK_FEATURES_INCLUDE_WAVEFORM)
+			continue;
+		for (size_t i = 0; i < NUM_INPUTS; i++) {
+			(*secondaryFeatures)[f + i * numFeatures] = ((*secondaryFeatures)[f + i * numFeatures] - (*featureMeans)[f]) / (*featureStdevs)[f];
+		}
+	}
+
 	return secondaryFeatures->size() / NUM_INPUTS;
+}
+
+bool loadFeatureNorms(std::string fname, std::vector<float>* featureMeans, std::vector<float>* featureStdevs) {
+	featureMeans->clear();
+	featureStdevs->clear();
+
+	std::ifstream featurefile(fname);
+	if (!featurefile.is_open())
+		return false;
+
+	std::string line;
+	std::getline(featurefile, line);
+	std::stringstream lss(line);
+	float val;
+	while (lss >> val)
+		featureMeans->push_back(val);
+
+	std::getline(featurefile, line);
+	std::stringstream lss2(line);
+	while (lss2 >> val)
+		featureStdevs->push_back(val);
+
+	return true;
 }
