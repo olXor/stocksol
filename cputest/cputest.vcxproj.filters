@@ -30,6 +30,9 @@
     <ClCompile Include="cpufeature.cpp">
       <Filter>Source Files</Filter>
     </ClCompile>
+    <ClCompile Include="cpupeakfinder.cpp">
+      <Filter>Source Files</Filter>
+    </ClCompile>
   </ItemGroup>
   <ItemGroup>
     <ClInclude Include="cpucompute.h">
@@ -42,6 +45,12 @@
       <Filter>Header Files</Filter>
     </ClInclude>
     <ClInclude Include="cpufeature.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
+    <ClInclude Include="cpuinterpolate.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
+    <ClInclude Include="cpupeakfinder.h">
       <Filter>Header Files</Filter>
     </ClInclude>
   </ItemGroup>

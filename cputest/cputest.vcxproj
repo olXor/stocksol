@@ -71,6 +71,7 @@
     <ClCompile Include="cpucompute.cpp" />
     <ClCompile Include="cpucommon.cpp" />
     <ClCompile Include="cpufeature.cpp" />
+    <ClCompile Include="cpupeakfinder.cpp" />
     <ClCompile Include="cputest.cpp" />
     <ClCompile Include="cpuwindow.cpp" />
   </ItemGroup>
@@ -78,6 +79,8 @@
     <ClInclude Include="cpucompute.h" />
     <ClInclude Include="cpucommon.h" />
     <ClInclude Include="cpufeature.h" />
+    <ClInclude Include="cpuinterpolate.h" />
+    <ClInclude Include="cpupeakfinder.h" />
     <ClInclude Include="cpuwindow.h" />
   </ItemGroup>
   <Import Project="$(VCTargetsPath)\Microsoft.Cpp.targets" />

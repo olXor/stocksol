@@ -2,6 +2,7 @@
 #include "cpucommon.h"
 #include "cpucompute.h"
 #include "cpufeature.h"
+#include "cpupeakfinder.h"
 
 struct ExplicitDataInfo {
 	std::string filelist;
@@ -162,7 +163,7 @@ void saveFileResults(std::string fname, ExplicitDataInfo dataInfo, size_t* segme
 }
 
 void saveExplicitBinaryFileResults(std::string binfname, ExplicitDataInfo dataInfo, size_t* segmentNum, bool generateSecondaryFeatures, std::vector<float>* featureMeans, std::vector<float>* featureStdevs, bool print) {
-	if (!generateSecondaryFeatures && dataInfo.waveformSize != weightlayers[0]->numInputElements)
+	if (dataInfo.waveformSize != weightlayers[0]->numInputElements)
 		throwError("Invalid input size");
 
 	FILE* binfile = fopen(binfname.c_str(), "rb");
@@ -174,7 +175,13 @@ void saveExplicitBinaryFileResults(std::string binfname, ExplicitDataInfo dataIn
 	while (fread(&columns[0], sizeof(float), dataInfo.numPreColumns + dataInfo.waveformSize, binfile) == dataInfo.numPreColumns + dataInfo.waveformSize) {
 		//---calculate---
 		if (generateSecondaryFeatures) {
-			createSecondaryFeatures(&columns[dataInfo.numPreColumns], &columns[dataInfo.numPreColumns + dataInfo.waveformSize / 2], &secondaryFeatures, featureMeans, featureStdevs);
+			std::vector<float> waveform;
+			std::vector<float> filtered;
+			std::vector<float> peaks;
+			memcpy(&waveform[0], &columns[dataInfo.numPreColumns], dataInfo.waveformSize);
+			findPeaksAndValleys(&waveform, &peaks);
+			applyBandPassFilter(&waveform, &filtered);
+			processInput(&waveform[0], &peaks[0], &secondaryFeatures, featureMeans, featureStdevs);
 			if (secondaryFeatures.size() != weightlayers[0]->numInputElements)
 				throwError("Generated feature size doesn't match network input size");
 			memcpy(&weightlayers[0]->inlayer[0], &secondaryFeatures[0], secondaryFeatures.size()*sizeof(float));

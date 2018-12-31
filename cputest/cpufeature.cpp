@@ -1,8 +1,6 @@
 #include "cpufeature.h"
 
-//this method is a bit over-complete; only the features with the hard-coded CONV_PEAK_FEATURES_INCLUDE flags set are used
-//assumes NUM_INPUTS point input.
-size_t createSecondaryFeatures(float* inputs, float* peaks, std::vector<float>* secondaryFeatures, std::vector<float>* featureMeans, std::vector<float>* featureStdevs) {
+void normalizeInputs(float* inputs) {
 	//first normalize by standard devation
 	float minInput = 9999;
 	float maxInput = -9999;
@@ -20,10 +18,93 @@ size_t createSecondaryFeatures(float* inputs, float* peaks, std::vector<float>* 
 	for (size_t in = 0; in < NUM_INPUTS; in++) {
 		inputs[in] = (inputs[in] - avg) / stdev;
 	}
+}
 
-	//Now create features
+void normalizeFeatures(std::vector<float>* secondaryFeatures, std::vector<float>* featureMeans, std::vector<float>* featureStdevs, std::vector<bool>* globalScaleMasks) {
+	size_t numFeatures = secondaryFeatures->size() / NUM_INPUTS;
+	//feature normalization
+	for (size_t f = 0; f < numFeatures; f++) {
+		if ((*globalScaleMasks)[f]) {
+			for (size_t i = 0; i < NUM_INPUTS; i++) {
+				(*secondaryFeatures)[f + i * numFeatures] = ((*secondaryFeatures)[f + i * numFeatures] - (*featureMeans)[f]) / (*featureStdevs)[f];
+			}
+		}
+	}
+}
 
-	size_t numFeatures = (CONV_PEAK_FEATURES_INCLUDE_ALL_SLOPES ? 4 : 0) + (CONV_PEAK_FEATURES_INCLUDE_REL_SLOPE ? 2 : 0) + (CONV_PEAK_FEATURES_INCLUDE_X_POS ? 2 : 0) + (CONV_PEAK_FEATURES_INCLUDE_Y_POS ? 2 : 0) + (CONV_PEAK_FEATURES_INCLUDE_WAVEFORM ? 1 : 0) + (CONV_PEAK_FEATURES_INCLUDE_SLOPE_DIFF ? 1 : 0) + (CONV_PEAK_FEATURES_INCLUDE_FIRST_DERIV ? 1 : 0) + (CONV_PEAK_FEATURES_INCLUDE_SECOND_DERIV ? 1 : 0);
+void createScaleMasks(std::vector<bool>* globalScaleMask, std::vector<bool>* localScaleMask) {
+	globalScaleMask->clear();
+	localScaleMask->clear();
+	if (CONV_PEAK_FEATURES_INCLUDE_WAVEFORM) {
+		globalScaleMask->push_back(false);
+		localScaleMask->push_back(false);
+	}
+
+	if (CONV_PEAK_FEATURES_INCLUDE_ALL_SLOPES) {
+		for (size_t i = 0; i < 4; i++) {
+			globalScaleMask->push_back(true);
+			localScaleMask->push_back(false);
+		}
+	}
+
+	if (CONV_PEAK_FEATURES_INCLUDE_NEAR_SLOPE) {
+		for (size_t i = 0; i < 2; i++) {
+			globalScaleMask->push_back(true);
+			localScaleMask->push_back(false);
+		}
+	}
+
+	if (CONV_PEAK_FEATURES_INCLUDE_FAR_SLOPE) {
+		for (size_t i = 0; i < 2; i++) {
+			globalScaleMask->push_back(true);
+			localScaleMask->push_back(false);
+		}
+	}
+
+	if (CONV_PEAK_FEATURES_INCLUDE_X_POS) {
+		for (size_t i = 0; i < 2; i++) {
+			globalScaleMask->push_back(true);
+			localScaleMask->push_back(false);
+		}
+	}
+
+	if (CONV_PEAK_FEATURES_INCLUDE_Y_POS) {
+		for (size_t i = 0; i < 2; i++) {
+			globalScaleMask->push_back(true);
+			localScaleMask->push_back(false);
+		}
+	}
+
+	if (CONV_PEAK_FEATURES_INCLUDE_SLOPE_DIFF) {
+		globalScaleMask->push_back(true);
+		localScaleMask->push_back(false);
+	}
+
+	if (CONV_PEAK_FEATURES_INCLUDE_FIRST_DERIV) {
+		globalScaleMask->push_back(false);
+		localScaleMask->push_back(true);
+	}
+
+	if (CONV_PEAK_FEATURES_INCLUDE_SECOND_DERIV) {
+		globalScaleMask->push_back(false);
+		localScaleMask->push_back(true);
+	}
+
+	if (CONV_PEAK_FEATURES_INCLUDE_NORM_BY_CENTER) {
+		globalScaleMask->push_back(false);
+		localScaleMask->push_back(false);
+	}
+
+	if (CONV_PEAK_FEATURES_INCLUDE_ALL_DERIV2_SLOPES) {
+		for (size_t i = 0; i < 4; i++) {
+			globalScaleMask->push_back(true);
+			localScaleMask->push_back(false);
+		}
+	}
+}
+
+size_t createSecondaryFeatures(float* inputs, float* peaks, std::vector<float>* secondaryFeatures, std::vector<bool>* localScaleMask) {
+	size_t numFeatures = (CONV_PEAK_FEATURES_INCLUDE_ALL_SLOPES ? 4 : 0) + (CONV_PEAK_FEATURES_INCLUDE_NEAR_SLOPE ? 2 : 0) + (CONV_PEAK_FEATURES_INCLUDE_FAR_SLOPE ? 2 : 0) + (CONV_PEAK_FEATURES_INCLUDE_X_POS ? 2 : 0) + (CONV_PEAK_FEATURES_INCLUDE_Y_POS ? 2 : 0) + (CONV_PEAK_FEATURES_INCLUDE_WAVEFORM ? 1 : 0) + (CONV_PEAK_FEATURES_INCLUDE_SLOPE_DIFF ? 1 : 0) + (CONV_PEAK_FEATURES_INCLUDE_FIRST_DERIV ? 1 : 0) + (CONV_PEAK_FEATURES_INCLUDE_SECOND_DERIV ? 1 : 0) + (CONV_PEAK_FEATURES_INCLUDE_NORM_BY_CENTER ? 1 : 0) + (CONV_PEAK_FEATURES_INCLUDE_ALL_DERIV2_SLOPES ? 4 : 0);
 	secondaryFeatures->clear();
 
 	std::vector<size_t> peakLocs;
@@ -32,22 +113,79 @@ size_t createSecondaryFeatures(float* inputs, float* peaks, std::vector<float>* 
 	float maxVal = -9999;
 
 	for (size_t i = 0; i < NUM_INPUTS; i++) {
-		if (peaks[i] == 1)
+		if (peaks[i] > 0)
 			peakLocs.push_back(i);
-		else if (peaks[i] == -1)
+		else if (peaks[i] < 0)
 			valleyLocs.push_back(i);
 		minVal = std::min(minVal, inputs[i]);
 		maxVal = std::max(maxVal, inputs[i]);
 	}
+	float minPeakDistance = 9999;
+	float minValleyDistance = 9999;
+	size_t centerPeak = 0;
+	size_t centerValley = 0;
+	for (size_t i = 0; i < peakLocs.size(); i++) {
+		int dist = abs((int)peakLocs[i] - NUM_INPUTS / 2);
+		if (dist < minPeakDistance) {
+			minPeakDistance = dist;
+			centerPeak = peakLocs[i];
+		}
+	}
+	for (size_t i = 0; i < valleyLocs.size(); i++) {
+		int dist = abs((int)valleyLocs[i] - NUM_INPUTS / 2);
+		if (dist < minValleyDistance) {
+			minValleyDistance = dist;
+			centerValley = valleyLocs[i];
+		}
+	}
 
-	if (peakLocs.size() < 3 || valleyLocs.size() < 3) {
-		std::cout << "Found pulse with less than 3 peaks or valleys detected" << std::endl;
+#ifdef CONV_PEAK_FEATURES_REJECT_LOW_PEAK_WAVEFORMS
+	if (peakLocs.size() < 2 || valleyLocs.size() < 2) {
+		/*
+		std::cout << "Found pulse with less than 2 peaks or valleys detected" << std::endl;
+		for (size_t i = 0; i < NUM_INPUTS; i++) {
+		std::cout << inputs[i] << " ";
+		}
+		std::cout << std::endl;
+		for (size_t i = 0; i < NUM_INPUTS; i++) {
+		std::cout << peaks[i] << " ";
+		}
+		std::cout << std::endl;
+		*/
 		for (size_t i = 0; i < NUM_INPUTS; i++) {
 			for (size_t f = 0; f < numFeatures; f++) {
-				(*secondaryFeatures)[f + i*numFeatures] = 0;
+				(*secondaryFeatures).push_back(0);
 			}
 		}
 		return numFeatures;
+	}
+#endif
+
+	std::vector<float> waveform(NUM_INPUTS);
+	std::vector<float> deriv1;
+	std::vector<float> deriv2;
+
+	for (size_t w = 0; w < NUM_INPUTS; w++)
+		waveform[w] = inputs[w];
+
+	if (CONV_PEAK_FEATURES_INCLUDE_FIRST_DERIV || CONV_PEAK_FEATURES_INCLUDE_SECOND_DERIV || CONV_PEAK_FEATURES_INCLUDE_ALL_DERIV2_SLOPES) {
+		computeDerivative(&waveform, &deriv1, DERIV_SMOOTHING_RANGE);
+	}
+
+	if (CONV_PEAK_FEATURES_INCLUDE_SECOND_DERIV || CONV_PEAK_FEATURES_INCLUDE_ALL_DERIV2_SLOPES) {
+		computeDerivative(&deriv1, &deriv2, DERIV_SMOOTHING_RANGE);
+	}
+
+	float maxDeriv1 = -99999;
+	float minDeriv1 = 99999;
+	float maxDeriv2 = -99999;
+	float minDeriv2 = 99999;
+
+	for (size_t i = 0; i < NUM_INPUTS; i++) {
+		minDeriv1 = std::min(minDeriv1, deriv1[i]);
+		maxDeriv1 = std::max(maxDeriv1, deriv1[i]);
+		minDeriv2 = std::min(minDeriv2, deriv2[i]);
+		maxDeriv2 = std::max(maxDeriv2, deriv2[i]);
 	}
 
 	size_t lastPeak = 0;
@@ -115,8 +253,9 @@ size_t createSecondaryFeatures(float* inputs, float* peaks, std::vector<float>* 
 		float valleyBackHypo = sqrt(valleyXDiffBack*valleyXDiffBack + valleyYDiffBack*valleyYDiffBack);
 		float valleyForHypo = sqrt(valleyXDiffFor*valleyXDiffFor + valleyYDiffFor*valleyYDiffFor);
 
-		if (CONV_PEAK_FEATURES_INCLUDE_WAVEFORM)
+		if (CONV_PEAK_FEATURES_INCLUDE_WAVEFORM) {
 			secondaryFeatures->push_back(inputs[i]);
+		}
 
 		if (CONV_PEAK_FEATURES_INCLUDE_ALL_SLOPES) {
 			if (peakBackHypo != 0)
@@ -140,7 +279,7 @@ size_t createSecondaryFeatures(float* inputs, float* peaks, std::vector<float>* 
 				secondaryFeatures->push_back(0.0f);
 		}
 
-		if (CONV_PEAK_FEATURES_INCLUDE_REL_SLOPE) {
+		if (CONV_PEAK_FEATURES_INCLUDE_NEAR_SLOPE) {
 			if (i > peakLocs[0] && (i <= valleyLocs[0] || peakLocs[lastPeak] > valleyLocs[lastValley]) && peakBackHypo != 0)
 				secondaryFeatures->push_back(peakYDiffBack / peakBackHypo);
 			else if (i > valleyLocs[0] && (i <= peakLocs[0] || valleyLocs[lastValley] > peakLocs[lastPeak]) && valleyBackHypo != 0)
@@ -151,6 +290,22 @@ size_t createSecondaryFeatures(float* inputs, float* peaks, std::vector<float>* 
 			if (i < peakLocs[peakLocs.size() - 1] && (i >= valleyLocs[valleyLocs.size() - 1] || peakLocs[lastPeak + 1] < valleyLocs[lastValley + 1]) && peakForHypo != 0)
 				secondaryFeatures->push_back(peakYDiffFor / peakForHypo);
 			else if (i < valleyLocs[valleyLocs.size() - 1] && (i >= peakLocs[peakLocs.size() - 1] || valleyLocs[lastValley + 1] < peakLocs[lastPeak + 1]) && valleyForHypo != 0)
+				secondaryFeatures->push_back(valleyYDiffFor / valleyForHypo);
+			else
+				secondaryFeatures->push_back(0);
+		}
+
+		if (CONV_PEAK_FEATURES_INCLUDE_FAR_SLOPE) {
+			if (i > peakLocs[0] && i > valleyLocs[0] && (peakLocs[lastPeak] < valleyLocs[lastValley]) && peakBackHypo != 0)
+				secondaryFeatures->push_back(peakYDiffBack / peakBackHypo);
+			else if (i > peakLocs[0] && i > valleyLocs[0] && (valleyLocs[lastValley] < peakLocs[lastPeak]) && valleyBackHypo != 0)
+				secondaryFeatures->push_back(valleyYDiffBack / valleyBackHypo);
+			else
+				secondaryFeatures->push_back(0);
+
+			if (i < peakLocs[peakLocs.size() - 1] && i < valleyLocs[valleyLocs.size() - 1] && (peakLocs[lastPeak + 1] > valleyLocs[lastValley + 1]) && peakForHypo != 0)
+				secondaryFeatures->push_back(peakYDiffFor / peakForHypo);
+			else if (i < peakLocs[peakLocs.size() - 1] && i < valleyLocs[valleyLocs.size() - 1] && (valleyLocs[lastValley + 1] > peakLocs[lastPeak + 1]) && valleyForHypo != 0)
 				secondaryFeatures->push_back(valleyYDiffFor / valleyForHypo);
 			else
 				secondaryFeatures->push_back(0);
@@ -201,34 +356,111 @@ size_t createSecondaryFeatures(float* inputs, float* peaks, std::vector<float>* 
 		}
 
 		if (CONV_PEAK_FEATURES_INCLUDE_FIRST_DERIV) {
-			if (i == 0 || i == NUM_INPUTS - 1)
-				secondaryFeatures->push_back(0);
-			else {
-				float deriv = inputs[i + 1] - inputs[i - 1];
-				secondaryFeatures->push_back(deriv);
-			}
+			secondaryFeatures->push_back(deriv1[i]);
 		}
 
 		if (CONV_PEAK_FEATURES_INCLUDE_SECOND_DERIV) {
-			if (i == 0 || i == NUM_INPUTS - 1)
+			secondaryFeatures->push_back(deriv2[i]);
+		}
+
+		if (CONV_PEAK_FEATURES_INCLUDE_NORM_BY_CENTER) {
+			if (inputs[centerPeak] > inputs[centerValley])
+				secondaryFeatures->push_back(2.0f*(inputs[i] - inputs[centerValley]) / (inputs[centerPeak] - inputs[centerValley]) - 1.0f);
+			else
 				secondaryFeatures->push_back(0);
-			else {
-				float deriv = inputs[i + 1] - 2 * inputs[i] + inputs[i - 1];
-				secondaryFeatures->push_back(deriv);
+		}
+
+		if (CONV_PEAK_FEATURES_INCLUDE_ALL_DERIV2_SLOPES) {
+			float derivPeakYDiffBack;
+			if (i > peakLocs[0]) {
+				derivPeakYDiffBack = (maxDeriv2 > minDeriv2 ? (deriv2[i] - deriv2[peakLocs[lastPeak]]) / (maxDeriv2 - minDeriv2) : 0.0f);
 			}
+			else {
+				derivPeakYDiffBack = 0;
+			}
+
+			float derivPeakYDiffFor;
+			if (i < peakLocs[peakLocs.size() - 1]) {
+				derivPeakYDiffFor = (maxDeriv2 > minDeriv2 ? (deriv2[peakLocs[lastPeak + 1]] - deriv2[i]) / (maxDeriv2 - minDeriv2) : 0.0f);
+			}
+			else {
+				derivPeakYDiffFor = 0;
+			}
+
+			float derivValleyYDiffBack;
+			if (i > valleyLocs[0]) {
+				derivValleyYDiffBack = (maxDeriv2 > minDeriv2 ? (deriv2[i] - deriv2[valleyLocs[lastValley]]) / (maxDeriv2 - minDeriv2) : 0.0f);
+			}
+			else {
+				derivValleyYDiffBack = 0;
+			}
+
+
+			float derivValleyYDiffFor;
+			if (i < valleyLocs[valleyLocs.size() - 1]) {
+				derivValleyYDiffFor = (maxDeriv2 > minDeriv2 ? (deriv2[valleyLocs[lastValley + 1]] - deriv2[i]) / (maxDeriv2 - minDeriv2) : 0.0f);
+			}
+			else {
+				derivValleyYDiffFor = 0;
+			}
+
+			float derivPeakBackHypo = sqrt(peakXDiffBack*peakXDiffBack + derivPeakYDiffBack*derivPeakYDiffBack);
+			float derivPeakForHypo = sqrt(peakXDiffFor*peakXDiffFor + derivPeakYDiffFor*derivPeakYDiffFor);
+			float derivValleyBackHypo = sqrt(valleyXDiffBack*valleyXDiffBack + derivValleyYDiffBack*derivValleyYDiffBack);
+			float derivValleyForHypo = sqrt(valleyXDiffFor*valleyXDiffFor + derivValleyYDiffFor*derivValleyYDiffFor);
+
+			if (derivPeakBackHypo != 0)
+				secondaryFeatures->push_back(derivPeakYDiffBack / derivPeakBackHypo);
+			else
+				secondaryFeatures->push_back(0.0f);
+
+			if (derivPeakForHypo != 0)
+				secondaryFeatures->push_back(derivPeakYDiffFor / derivPeakForHypo);
+			else
+				secondaryFeatures->push_back(0.0f);
+
+			if (derivValleyBackHypo != 0)
+				secondaryFeatures->push_back(derivValleyYDiffBack / derivValleyBackHypo);
+			else
+				secondaryFeatures->push_back(0.0f);
+
+			if (derivValleyForHypo != 0)
+				secondaryFeatures->push_back(derivValleyYDiffFor / derivValleyForHypo);
+			else
+				secondaryFeatures->push_back(0.0f);
 		}
 	}
 
-	//feature normalization
+	//local scaling
 	for (size_t f = 0; f < numFeatures; f++) {
-		if (f == 0 && CONV_PEAK_FEATURES_INCLUDE_WAVEFORM)
+		if (!(*localScaleMask)[f])
 			continue;
+		float mean = 0;
+		float stdev = 0;
 		for (size_t i = 0; i < NUM_INPUTS; i++) {
-			(*secondaryFeatures)[f + i * numFeatures] = ((*secondaryFeatures)[f + i * numFeatures] - (*featureMeans)[f]) / (*featureStdevs)[f];
+			float val = (*secondaryFeatures)[f + i*numFeatures];
+			mean += val;
+			stdev += val*val;
+		}
+		mean /= NUM_INPUTS;
+		stdev /= NUM_INPUTS;
+		stdev = sqrt(stdev - mean*mean);
+		for (size_t i = 0; i < NUM_INPUTS; i++) {
+			(*secondaryFeatures)[f + i*numFeatures] = (stdev > 0 ? ((*secondaryFeatures)[f + i*numFeatures] - mean) / stdev : 0);
 		}
 	}
 
 	return secondaryFeatures->size() / NUM_INPUTS;
+}
+
+size_t processInput(float* inputs, float* peaks, std::vector<float>* secondaryFeatures, std::vector<float>* featureMeans, std::vector<float>* featureStdevs) {
+	normalizeInputs(inputs);
+	std::vector<bool> globalScaleMasks;
+	std::vector<bool> localScaleMasks;
+	createScaleMasks(&globalScaleMasks, &localScaleMasks);
+	size_t numFeatures = createSecondaryFeatures(inputs, peaks, secondaryFeatures, &localScaleMasks);
+	normalizeFeatures(secondaryFeatures, featureMeans, featureStdevs, &globalScaleMasks);
+	return numFeatures;
 }
 
 bool loadFeatureNorms(std::string fname, std::vector<float>* featureMeans, std::vector<float>* featureStdevs) {
